@@ -21,6 +21,7 @@
     <Project Path="src/Modules/Users/Shop.Modules.Users/Shop.Modules.Users.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Shop.Modules.Products.Tests/Shop.Modules.Products.Tests.csproj" />
     <Project Path="tests/Shop.Modules.Products.UnitTests/Shop.Modules.Products.UnitTests.csproj" />
   </Folder>
 </Solution>
