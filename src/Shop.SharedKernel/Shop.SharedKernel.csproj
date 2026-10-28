@@ -10,4 +10,10 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Modules register their validators with AddValidatorsFromAssembly; WithRequestValidation runs them -->
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
+  </ItemGroup>
+
 </Project>
