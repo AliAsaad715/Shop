@@ -20,4 +20,7 @@
     <Project Path="src/Modules/Users/Shop.Modules.Users.Contracts/Shop.Modules.Users.Contracts.csproj" />
     <Project Path="src/Modules/Users/Shop.Modules.Users/Shop.Modules.Users.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Shop.Modules.Products.UnitTests/Shop.Modules.Products.UnitTests.csproj" />
+  </Folder>
 </Solution>
