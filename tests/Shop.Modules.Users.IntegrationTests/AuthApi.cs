@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Shop.Modules.Users.Data;
+using Shop.SharedKernel.Auth;
 using Shop.SharedKernel.Errors;
 using Shop.SharedKernel.Validation;
 using Testcontainers.PostgreSql;
@@ -48,6 +49,7 @@ public sealed class AuthApi : IAsyncLifetime
             ["Jwt:SigningKey"] = SigningKey,
             ["Jwt:Issuer"] = "shop",
             ["Jwt:Audience"] = "shop-api",
+            ["Jwt:LifetimeMinutes"] = "15",
             ["Admin:Email"] = null,
             ["Admin:Password"] = null,
         });
@@ -65,6 +67,19 @@ public sealed class AuthApi : IAsyncLifetime
         _app.UseAuthentication();
         _app.UseAuthorization();
         _app.MapGroup("/api/v1").WithRequestValidation().MapUsersEndpoints();
+        _app.MapGet("/test/default", () => "authenticated");
+        _app.MapGet("/test/admin", () => "admin").RequireAuthorization(Policies.AdminOnly);
+        _app.MapGet("/test/customer", () => "customer").RequireAuthorization(Policies.CustomerOnly);
+        _app.MapGet("/test/current", (ICurrentUser user) => new
+        {
+            user.IsAuthenticated,
+            user.UserId,
+            user.Email,
+            user.Roles,
+            IsAdmin = user.IsInRole(Roles.Admin),
+        });
+        _app.MapGet("/test/public", (ICurrentUser user) => new { user.IsAuthenticated, user.UserId, user.Email, user.Roles })
+            .AllowAnonymous();
         await _app.StartAsync();
         Client = _app.GetTestClient();
     }

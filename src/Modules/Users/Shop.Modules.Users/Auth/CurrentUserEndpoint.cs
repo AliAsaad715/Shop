@@ -1,10 +1,10 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
 using Shop.Modules.Users.Domain;
+using Shop.SharedKernel.Auth;
 using Shop.SharedKernel.Errors;
 
 namespace Shop.Modules.Users.Auth;
@@ -20,10 +20,10 @@ internal static class CurrentUserEndpoint
             .ProducesProblem(StatusCodes.Status401Unauthorized);
 
     public static async Task<Results<Ok<CurrentUserResponse>, ProblemHttpResult>> HandleAsync(
-        ClaimsPrincipal principal, UserManager<User> users, HttpResponse response)
+        ICurrentUser currentUser, UserManager<User> users, HttpResponse response)
     {
         response.Headers.CacheControl = "no-store";
-        if (!Guid.TryParse(principal.FindFirstValue("sub"), out var id)
+        if (currentUser.UserId is not { } id
             || await users.FindByIdAsync(id.ToString()) is not { } user)
         {
             return Problems.Create(StatusCodes.Status401Unauthorized, ErrorCodes.Common.Unauthorized, "Unauthorized");
