@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
@@ -31,7 +30,7 @@ public sealed class UsersIdentityTests
             connectionString = postgres.GetConnectionString();
         }
 
-        await using var services = BuildServices(connectionString!, AdminPassword);
+        await using var services = UsersTestServices.Build(connectionString!, AdminEmail, AdminPassword);
         await using (var scope = services.CreateAsyncScope())
         {
             var context = scope.ServiceProvider.GetRequiredService<UsersDbContext>();
@@ -46,7 +45,7 @@ public sealed class UsersIdentityTests
         await AssertSingleAdminAsync(services, AdminPassword);
 
         // A restart with a different configured password neither duplicates the admin nor resets its password
-        await using var restarted = BuildServices(connectionString!, "Different123!");
+        await using var restarted = UsersTestServices.Build(connectionString!, AdminEmail, "Different123!");
         await StartHostedServicesAsync(restarted);
         await AssertSingleAdminAsync(restarted, AdminPassword);
 
@@ -65,24 +64,6 @@ public sealed class UsersIdentityTests
             var error = await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
             Assert.Equal(PostgresErrorCodes.UniqueViolation, Assert.IsType<PostgresException>(error.InnerException).SqlState);
         }
-    }
-
-    private static ServiceProvider BuildServices(string connectionString, string adminPassword)
-    {
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["ConnectionStrings:Shop"] = connectionString,
-                ["Admin:Email"] = AdminEmail,
-                ["Admin:Password"] = adminPassword,
-            })
-            .Build();
-
-        return new ServiceCollection()
-            .AddSingleton<IConfiguration>(configuration)
-            .AddLogging()
-            .AddUsersModule()
-            .BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
     }
 
     private static async Task StartHostedServicesAsync(IServiceProvider services)

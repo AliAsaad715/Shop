@@ -1,5 +1,7 @@
+using FluentValidation;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Shop.Modules.Users.Auth;
 using Shop.Modules.Users.Data;
 using Shop.Modules.Users.Domain;
 using Shop.Modules.Users.Seeding;
@@ -14,9 +16,20 @@ public static class UsersModule
         services.AddModuleDbContext<UsersDbContext>(UsersDbContext.Schema);
 
         // Identity Core only: user and role stores plus password hashing, no cookie UI or MapIdentityApi
-        services.AddIdentityCore<User>(options => options.User.RequireUniqueEmail = true)
+        services.AddIdentityCore<User>(options =>
+            {
+                options.User.RequireUniqueEmail = true;
+
+                // The user name is the email, already checked by RegisterRequestValidator
+                options.User.AllowedUserNameCharacters = string.Empty;
+
+                // Identity's defaults already require upper and lower case, a digit and a symbol
+                options.Password.RequiredLength = 8;
+            })
             .AddRoles<Role>()
             .AddEntityFrameworkStores<UsersDbContext>();
+
+        services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>(includeInternalTypes: true);
 
         services.AddOptions<AdminSeedOptions>().BindConfiguration(AdminSeedOptions.Section);
         services.AddHostedService<AdminSeeder>();
@@ -26,7 +39,9 @@ public static class UsersModule
 
     public static IEndpointRouteBuilder MapUsersEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        // POST /auth/register, POST /auth/login and GET /users/me arrive with tasks 09 and 10
+        RegisterEndpoint.Map(endpoints);
+
+        // POST /auth/login and GET /users/me arrive with task 10
 
         return endpoints;
     }

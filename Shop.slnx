@@ -25,5 +25,6 @@
     <Project Path="tests/Shop.Modules.Products.IntegrationTests/Shop.Modules.Products.IntegrationTests.csproj" />
     <Project Path="tests/Shop.Modules.Products.UnitTests/Shop.Modules.Products.UnitTests.csproj" />
     <Project Path="tests/Shop.Modules.Users.IntegrationTests/Shop.Modules.Users.IntegrationTests.csproj" />
+    <Project Path="tests/Shop.Modules.Users.UnitTests/Shop.Modules.Users.UnitTests.csproj" />
   </Folder>
 </Solution>
