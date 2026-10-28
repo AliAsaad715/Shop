@@ -1,0 +1,11 @@
+# Keep host build output, IDE state and secrets out of the build context;
+# obj/ from a Windows build breaks the restore inside the Linux image
+**/bin
+**/obj
+**/.vs
+**/.vscode
+**/.idea
+**/*.user
+**/TestResults
+.git
+.env

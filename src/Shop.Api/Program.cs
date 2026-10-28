@@ -2,6 +2,7 @@ using Shop.Modules.Notifications;
 using Shop.Modules.Orders;
 using Shop.Modules.Products;
 using Shop.Modules.Users;
+using Shop.SharedKernel.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,6 +15,9 @@ builder.Services
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
+
+// Every module's schema is current before the first request
+await app.MigrateModuleDatabasesAsync();
 
 app.MapHealthChecks("/health");
 
