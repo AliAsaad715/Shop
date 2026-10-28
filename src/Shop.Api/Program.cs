@@ -1,10 +1,10 @@
+using Shop.Api.Docs;
 using Shop.Modules.Notifications;
 using Shop.Modules.Orders;
 using Shop.Modules.Products;
 using Shop.Modules.Users;
 using Shop.SharedKernel.Errors;
 using Shop.SharedKernel.Persistence;
-using Shop.SharedKernel.Validation;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +15,7 @@ builder.Services
     .AddNotificationsModule();
 
 builder.Services.AddErrorContract();
+builder.Services.AddVersionedApiDocs();
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
@@ -26,10 +27,10 @@ await app.MigrateModuleDatabasesAsync();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 
-app.MapHealthChecks("/health");
+app.MapHealthChecks("/health").AllowAnonymous();
+app.MapApiDocs();
 
-// Task 06 turns this into an Asp.Versioning route group; the validation filter stays on it
-var api = app.MapGroup("/api/v1").WithRequestValidation();
+var api = app.MapVersionedApi();
 api.MapUsersEndpoints();
 api.MapProductsEndpoints();
 api.MapOrdersEndpoints();

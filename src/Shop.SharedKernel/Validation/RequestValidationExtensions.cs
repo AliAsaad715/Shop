@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using FluentValidation;
 using Microsoft.AspNetCore.Builder;
@@ -12,23 +13,24 @@ public static class RequestValidationExtensions
     /// <summary>
     /// Validates every endpoint argument whose type has an <see cref="IValidator{T}"/> registered and
     /// answers 422 with the failures before the handler runs. Modules register their validators with
-    /// <c>AddValidatorsFromAssemblyContaining</c>.
+    /// <c>AddValidatorsFromAssemblyContaining</c>. Only the validated endpoints document the 422.
     /// </summary>
     public static TBuilder WithRequestValidation<TBuilder>(this TBuilder builder)
         where TBuilder : IEndpointConventionBuilder
     {
+        builder.Add(endpointBuilder =>
+        {
+            if (endpointBuilder.Metadata.OfType<MethodInfo>().FirstOrDefault() is { } handler
+                && ValidatedArguments(handler, endpointBuilder.ApplicationServices).Count > 0)
+            {
+                endpointBuilder.Metadata.Add(new ProducesResponseTypeMetadata(
+                    StatusCodes.Status422UnprocessableEntity, typeof(HttpValidationProblemDetails), ["application/problem+json"]));
+            }
+        });
+
         builder.AddEndpointFilterFactory((factoryContext, next) =>
         {
-            var registrations = factoryContext.ApplicationServices.GetRequiredService<IServiceProviderIsService>();
-            var parameters = factoryContext.MethodInfo.GetParameters();
-            var validated = new List<(int Index, Type ValidatorType)>();
-            for (var index = 0; index < parameters.Length; index++)
-            {
-                if (ValidatorTypeFor(parameters[index].ParameterType) is { } validatorType && registrations.IsService(validatorType))
-                {
-                    validated.Add((index, validatorType));
-                }
-            }
+            var validated = ValidatedArguments(factoryContext.MethodInfo, factoryContext.ApplicationServices);
 
             // Endpoints with nothing to validate skip the filter entirely
             if (validated.Count == 0)
@@ -59,6 +61,22 @@ public static class RequestValidationExtensions
         });
 
         return builder;
+    }
+
+    private static List<(int Index, Type ValidatorType)> ValidatedArguments(MethodInfo handler, IServiceProvider services)
+    {
+        var registrations = services.GetRequiredService<IServiceProviderIsService>();
+        var parameters = handler.GetParameters();
+        var validated = new List<(int Index, Type ValidatorType)>();
+        for (var index = 0; index < parameters.Length; index++)
+        {
+            if (ValidatorTypeFor(parameters[index].ParameterType) is { } validatorType && registrations.IsService(validatorType))
+            {
+                validated.Add((index, validatorType));
+            }
+        }
+
+        return validated;
     }
 
     private static Type? ValidatorTypeFor(Type parameterType) =>
