@@ -7,7 +7,7 @@ using Shop.Modules.Products.Domain;
 using Testcontainers.PostgreSql;
 using Xunit;
 
-namespace Shop.Modules.Products.Tests;
+namespace Shop.Modules.Products.IntegrationTests;
 
 public sealed class ProductsSchemaTests
 {
