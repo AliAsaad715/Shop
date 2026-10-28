@@ -9,6 +9,7 @@ using Xunit;
 
 namespace Shop.Modules.Products.IntegrationTests;
 
+[Collection("Products database")]
 public sealed class ProductsSchemaTests
 {
     [Fact]

@@ -1,4 +1,4 @@
-# Products schema integration test
+# Products integration tests
 
 Run from the repository root with Docker available:
 
@@ -16,3 +16,13 @@ dotnet test tests/Shop.Modules.Products.IntegrationTests
 ```
 
 The four initial categories are Electronics, Clothing, Home, and Books. Their fixed IDs prevent migration changes between runs. Product IDs are generated as UUIDv7 in the application, creation timestamps use UTC, and prices use `numeric(18,2)` with zero allowed. A category with products cannot be deleted. The indexes support `created_at DESC, id ASC`, both across the catalog and within a category.
+
+## Product creation and images
+
+The upload tests use ASP.NET TestHost and real PostgreSQL, with a test-owned temporary image directory. A test-only authentication handler and the `AdminOnly` policy exercise 401/403/201 behavior; production JWT validation and policy registration remain task 11 and must land before integration.
+
+POST `/api/v1/products` accepts multipart `name`, `description`, `price`, `categoryId`, and one `image`. No antiforgery token is needed. Tests cover real JPEG/PNG/WebP files, misleading client filenames/content types, the exact 2 MiB boundary, oversized and unknown-length bodies, malformed fields, duplicate/missing files, cleanup after database/write failures, and serving the same bytes through the returned image URL with `nosniff`.
+
+The schema and upload classes share the `Products database` collection so a schema rollback cannot race upload tests when `SHOP_PRODUCTS_TEST_CONNECTION` points to the same disposable database.
+
+Local image storage defaults to `App_Data/images` relative to the host content root. Set `Images:RootPath` (`Images__RootPath` in environment variables) to override it. Compose uses `/data/images` on the existing image volume. Only generated keys of the form `products/{uuid-without-dashes}.{jpg|png|webp}` are served at `/images/products/{filename}`. Product detail reads and the Location target are supplied by task 16.
