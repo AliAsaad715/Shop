@@ -32,14 +32,14 @@ public static class RequestValidationExtensions
         {
             var validated = ValidatedArguments(factoryContext.MethodInfo, factoryContext.ApplicationServices);
 
-            // Endpoints with nothing to validate skip the filter entirely
-            if (validated.Count == 0)
-            {
-                return next;
-            }
-
             return async invocationContext =>
             {
+                // Binding failures already set 400; never validate default arguments or invoke the handler.
+                if (invocationContext.HttpContext.Response.StatusCode == StatusCodes.Status400BadRequest)
+                {
+                    return Problems.Create(StatusCodes.Status400BadRequest, ErrorCodes.Common.BadRequest, "Bad Request");
+                }
+
                 var errors = new Dictionary<string, string[]>();
                 foreach (var (index, validatorType) in validated)
                 {

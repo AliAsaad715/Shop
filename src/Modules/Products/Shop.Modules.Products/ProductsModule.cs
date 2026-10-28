@@ -1,5 +1,7 @@
+using FluentValidation;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Shop.Modules.Products.Catalog;
 using Shop.Modules.Products.Contracts;
 using Shop.Modules.Products.Data;
 using Shop.Modules.Products.Inventory;
@@ -13,13 +15,17 @@ public static class ProductsModule
     {
         services.AddModuleDbContext<ProductsDbContext>(ProductsDbContext.Schema);
         services.AddScoped<IInventoryService, PlaceholderInventoryService>();
+        services.AddScoped<IProductCatalog, ProductCatalog>();
+        services.AddValidatorsFromAssemblyContaining<ListProductsRequestValidator>(includeInternalTypes: true);
 
         return services;
     }
 
     public static IEndpointRouteBuilder MapProductsEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        // POST /products, GET /products, GET /products/{id} and GET /categories arrive with tasks 15 and 16
+        ProductEndpoints.Map(endpoints);
+
+        // POST /products arrives with task 15.
 
         return endpoints;
     }
