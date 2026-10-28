@@ -31,9 +31,11 @@ app.UseRouting();
 app.UseRoutingErrors();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseProductUploads();
 
 app.MapHealthChecks("/health").AllowAnonymous();
 app.MapApiDocs();
+app.MapProductImages();
 
 var api = app.MapVersionedApi();
 api.MapUsersEndpoints();
@@ -41,3 +43,8 @@ api.MapProductsEndpoints();
 api.MapOrdersEndpoints();
 
 app.Run();
+
+// Exposes the real host entry point to WebApplicationFactory without exposing module internals.
+public partial class Program
+{
+}
