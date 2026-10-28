@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Shop.Modules.Users.Data;
+using Shop.Modules.Users.Domain;
+using Shop.Modules.Users.Seeding;
 using Shop.SharedKernel.Persistence;
 
 namespace Shop.Modules.Users;
@@ -10,6 +12,14 @@ public static class UsersModule
     public static IServiceCollection AddUsersModule(this IServiceCollection services)
     {
         services.AddModuleDbContext<UsersDbContext>(UsersDbContext.Schema);
+
+        // Identity Core only: user and role stores plus password hashing, no cookie UI or MapIdentityApi
+        services.AddIdentityCore<User>(options => options.User.RequireUniqueEmail = true)
+            .AddRoles<Role>()
+            .AddEntityFrameworkStores<UsersDbContext>();
+
+        services.AddOptions<AdminSeedOptions>().BindConfiguration(AdminSeedOptions.Section);
+        services.AddHostedService<AdminSeeder>();
 
         return services;
     }

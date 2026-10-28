@@ -10,4 +10,13 @@
     <ProjectReference Include="..\Shop.Modules.Users.Contracts\Shop.Modules.Users.Contracts.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Identity Core's user and role stores on EF Core, in the users schema -->
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Shop.Modules.Users.IntegrationTests" />
+  </ItemGroup>
+
 </Project>
