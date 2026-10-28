@@ -5,6 +5,7 @@
 
 # dotenv files
 .env
+**/App_Data/images/
 
 # User-specific files
 *.rsuser

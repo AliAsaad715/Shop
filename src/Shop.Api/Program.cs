@@ -26,9 +26,13 @@ await app.MigrateModuleDatabasesAsync();
 // Unhandled exceptions and bare status codes (unknown route, missing token, rate limit) become Problem Details too
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseProductUploads();
 
 app.MapHealthChecks("/health").AllowAnonymous();
 app.MapApiDocs();
+app.MapProductImages();
 
 var api = app.MapVersionedApi();
 api.MapUsersEndpoints();

@@ -1,4 +1,5 @@
 using FluentValidation;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Shop.Modules.Users.Auth;
@@ -27,7 +28,10 @@ public static class UsersModule
                 options.Password.RequiredLength = 8;
             })
             .AddRoles<Role>()
-            .AddEntityFrameworkStores<UsersDbContext>();
+            .AddEntityFrameworkStores<UsersDbContext>()
+            .AddSignInManager();
+
+        services.AddUsersJwt();
 
         services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>(includeInternalTypes: true);
 
@@ -40,8 +44,8 @@ public static class UsersModule
     public static IEndpointRouteBuilder MapUsersEndpoints(this IEndpointRouteBuilder endpoints)
     {
         RegisterEndpoint.Map(endpoints);
-
-        // POST /auth/login and GET /users/me arrive with task 10
+        LoginEndpoint.Map(endpoints);
+        CurrentUserEndpoint.Map(endpoints);
 
         return endpoints;
     }
