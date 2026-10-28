@@ -1,4 +1,6 @@
 using FluentValidation;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,12 +28,28 @@ public static class UsersModule
 
                 // Identity's defaults already require upper and lower case, a digit and a symbol
                 options.Password.RequiredLength = 8;
+
+                options.Lockout.AllowedForNewUsers = true;
+                options.Lockout.MaxFailedAccessAttempts = 5;
+                options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
             })
             .AddRoles<Role>()
             .AddEntityFrameworkStores<UsersDbContext>()
             .AddSignInManager();
 
         services.AddUsersJwt();
+
+        services.AddOptions<LoginRateLimitOptions>()
+            .BindConfiguration(LoginRateLimitOptions.Section)
+            .Validate(options => options.PermitLimit > 0, "Login rate-limit permits must be positive.")
+            .Validate(options => options.WindowSeconds is > 0 and <= 86400,
+                "Login rate-limit window must be between 1 and 86400 seconds.")
+            .ValidateOnStart();
+        services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            options.AddPolicy<string, LoginRateLimitPolicy>(LoginRateLimitPolicy.Name);
+        });
 
         services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>(includeInternalTypes: true);
 

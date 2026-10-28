@@ -15,6 +15,8 @@ services:
       Admin__Email: ${ADMIN_EMAIL:-admin@shop.local}
       Admin__Password: ${ADMIN_PASSWORD:-Admin123!}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:-}
+      LoginRateLimit__PermitLimit: ${LOGIN_RATE_LIMIT_PERMIT_LIMIT:-5}
+      LoginRateLimit__WindowSeconds: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-60}
     ports:
       - "${API_PORT:-8080}:8080"
     volumes:

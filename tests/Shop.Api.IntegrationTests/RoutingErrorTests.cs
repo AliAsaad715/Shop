@@ -64,6 +64,7 @@ public sealed class RoutingApi : IAsyncLifetime
             await next(context);
         });
         _app.UseRoutingErrors();
+        _app.UseRateLimiter();
         _app.UseAuthentication();
         _app.UseAuthorization();
         _app.MapVersionedApi().MapUsersEndpoints();
