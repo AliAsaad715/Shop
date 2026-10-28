@@ -1,0 +1,30 @@
+# Generated from tests/postman/openapi.v1.json. Run npm run generate to refresh.
+# Examples only: review bodies before sending. For executable assertions use npm run proof.
+@baseUrl = http://localhost:8080
+@bearerToken = REPLACE_LOCALLY
+
+### Create a customer account
+POST {{baseUrl}}/api/v1/auth/register
+Authorization: Bearer {{bearerToken}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "email": "<string>",
+  "password": "<string>"
+}
+
+### List products by category with paging (pageSize 1–50, default 20)
+GET {{baseUrl}}/api/v1/products?category=<uuid>&page=1&pageSize=20
+Authorization: Bearer {{bearerToken}}
+Accept: application/json
+
+### Get a product and its image URL
+GET {{baseUrl}}/api/v1/products/{{id}}
+Authorization: Bearer {{bearerToken}}
+Accept: application/json
+
+### List product categories
+GET {{baseUrl}}/api/v1/categories
+Authorization: Bearer {{bearerToken}}
+Accept: application/json
