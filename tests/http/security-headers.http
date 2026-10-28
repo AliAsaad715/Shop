@@ -1,0 +1,28 @@
+# Local HTTPS launch profile. Compose's HTTP-only demo uses http://localhost:8080.
+@baseUrl = https://localhost:7080
+@frontendOrigin = http://localhost:5173
+
+### 200 with baseline security headers and no Server header.
+GET {{baseUrl}}/health
+
+### 404 Problem Details with a strict Content-Security-Policy.
+GET {{baseUrl}}/api/v1/no-such-resource
+Origin: {{frontendOrigin}}
+
+### 204 preflight: exact allowed origin, POST and authorization/content-type permitted.
+OPTIONS {{baseUrl}}/api/v1/auth/login
+Origin: {{frontendOrigin}}
+Access-Control-Request-Method: POST
+Access-Control-Request-Headers: authorization,content-type
+
+### Untrusted origin: no Access-Control-Allow-Origin header.
+OPTIONS {{baseUrl}}/api/v1/auth/login
+Origin: https://untrusted.example
+Access-Control-Request-Method: POST
+Access-Control-Request-Headers: authorization,content-type
+
+### Scalar HTML uses the docs policy and can load its local assets.
+GET {{baseUrl}}/docs/v1
+
+### With the HTTPS launch profile: 307, preserving the path and query.
+GET http://localhost:5080/health?probe=1

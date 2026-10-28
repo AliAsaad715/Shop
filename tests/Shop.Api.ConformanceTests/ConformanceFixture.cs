@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
@@ -69,6 +70,7 @@ internal sealed class ConformanceApiFactory(string connectionString) : WebApplic
             ["Admin:Email"] = string.Empty,
             ["Admin:Password"] = string.Empty,
             ["AllowedHosts"] = "*",
+            ["Jwt:SigningKey"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)),
         }));
         builder.ConfigureTestServices(services =>
         {

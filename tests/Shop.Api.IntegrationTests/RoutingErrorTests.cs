@@ -15,6 +15,7 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using Shop.Api.Docs;
 using Shop.Api.Routing;
+using Shop.Api.Security;
 using Shop.Modules.Users;
 using Shop.SharedKernel.Auth;
 using Shop.SharedKernel.Errors;
@@ -28,6 +29,7 @@ public sealed class RoutingApi : IAsyncLifetime
     private readonly byte[] _key = RandomNumberGenerator.GetBytes(32);
 
     public HttpClient Client { get; private set; } = null!;
+    public int? HttpsPort { get; init; }
 
     public async Task InitializeAsync()
     {
@@ -42,13 +44,27 @@ public sealed class RoutingApi : IAsyncLifetime
             ["Jwt:LifetimeMinutes"] = "15",
             ["Admin:Email"] = null,
             ["Admin:Password"] = null,
+            ["Cors:AllowedOrigins:0"] = "https://frontend.shop.test",
+            // Keep login-quota assertions independent of developer or CI environment settings.
+            ["LoginRateLimit:PermitLimit"] = "5",
+            ["LoginRateLimit:WindowSeconds"] = "60",
+            // A valid provider configuration is needed to construct Identity; these tests never query it.
+            ["ConnectionStrings:Shop"] = "Host=127.0.0.1;Database=unused_routing_test;Username=postgres",
         });
         builder.Services.AddUsersModule();
         builder.Services.AddVersionedApiDocs();
         builder.Services.AddHealthChecks();
         builder.Services.AddErrorContract();
+        builder.Services.AddBrowserSecurity();
+        if (HttpsPort is { } httpsPort)
+        {
+            builder.Services.AddHttpsRedirection(options => options.HttpsPort = httpsPort);
+        }
         _app = builder.Build();
+        _app.UseHsts();
+        _app.UseSecurityHeaders();
         _app.UseExceptionHandler();
+        _app.UseHttpsRedirection();
         _app.UseStatusCodePages();
         _app.UseRouting();
 
@@ -63,9 +79,10 @@ public sealed class RoutingApi : IAsyncLifetime
 
             await next(context);
         });
-        _app.UseRoutingErrors();
+        _app.UseFrontendCors();
         _app.UseRateLimiter();
         _app.UseAuthentication();
+        _app.UseRoutingErrors();
         _app.UseAuthorization();
         _app.MapVersionedApi().MapUsersEndpoints();
         _app.MapHealthChecks("/health").AllowAnonymous();
@@ -75,6 +92,8 @@ public sealed class RoutingApi : IAsyncLifetime
         _app.MapGet("/test/resource/{id:guid}", (Guid id) => id).AllowAnonymous();
         _app.MapGet("/test/protected", () => "protected");
         _app.MapGet("/test/admin", () => "admin").RequireAuthorization(Policies.AdminOnly);
+        _app.MapGet("/api/v1/test/failure", (Func<string>)(() => throw new InvalidOperationException("Private test error")))
+            .AllowAnonymous();
         await _app.StartAsync();
         Client = _app.GetTestClient();
     }
