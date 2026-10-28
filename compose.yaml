@@ -1,5 +1,5 @@
-# A clean clone runs with `docker compose up`; add --build after code changes.
-# Every setting has a default here; copy .env.example to .env to change them.
+# Copy .env.example to .env and set JWT_SIGNING_KEY before the first run.
+# Run `docker compose up`; add --build after code changes.
 name: shop
 
 services:
@@ -13,6 +13,7 @@ services:
       # Seeded on startup in the Admin role; change both outside local demos
       Admin__Email: ${ADMIN_EMAIL:-admin@shop.local}
       Admin__Password: ${ADMIN_PASSWORD:-Admin123!}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:-}
     ports:
       - "${API_PORT:-8080}:8080"
     volumes:
