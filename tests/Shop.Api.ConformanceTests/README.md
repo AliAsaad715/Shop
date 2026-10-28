@@ -1,0 +1,30 @@
+# API conformance tests (task 23)
+
+Run from the repository root with Docker available:
+
+```sh
+dotnet test tests/Shop.Api.ConformanceTests
+```
+
+The full-host tests use WebApplicationFactory against the actual Shop.Api Program, real module registrations, startup migrations, versioned routes and error middleware. PostgreSQL 18 is provisioned with Testcontainers. Alternatively, set `SHOP_CONFORMANCE_TEST_CONNECTION` to a dedicated disposable database. These tests apply migrations and create customer accounts; do not point them at shared or production data.
+
+The fixture is scoped to this conformance project while task 07's shared test setup is unavailable. It does not provide production JWT token helpers. A test-only authentication scheme supplies an authenticated identity solely for Cache-Control checks. It does not inject security headers or replace the production error/versioning middleware. HTTPS requests use `shop.test` so HSTS is not accidentally exempted as localhost; TestServer simulates the HTTPS request scheme and does not test TLS itself.
+
+## Coverage
+
+- The production error pipeline is exercised with test-only bare status producers for 400, 401, 403, 404, 405, 409, 413, 415, 422, 429 and 503, plus actual binding and unhandled-exception failures. These cases verify formatting, not authentication, quota or upload enforcement.
+- Actual API requests check malformed JSON, validation field errors, duplicate email, unknown routes/methods, unsupported API versions, absent version segments and a sanitized 500. The 500 case temporarily changes the test host's connection setting after startup to a nonexistent database and restores it in finally; API test classes share a serialized collection.
+- Unsupported URL-segment versions correctly return 404, as documented by [API Versioning](https://dotnet.github.io/aspnet-api-versioning/aspnet-core/errors.html). The docs redirect and its rendered HTML target are both checked for security headers.
+- Success, docs and error responses must include nosniff, X-Frame-Options: DENY and Referrer-Policy: no-referrer, with no Server header.
+- API responses need a strict CSP; HTTPS needs HSTS; HTTP must not send HSTS; authenticated responses need Cache-Control: no-store.
+- The real Kestrel AddServerHeader option must be disabled, because a TestServer wire response alone cannot prove what Kestrel emits.
+
+## Current dependency
+
+Task 13's production security-header implementation is not on main. Its positive security checks are intentionally enabled and will fail until that prerequisite lands. No Skip attributes, conditional header assertions, test-only header middleware or JWT implementation are used to hide that dependency. This PR should not be merged as a green conformance gate before task 13 is integrated.
+
+To run the independent error and API contract checks while task 13 is pending:
+
+```sh
+dotnet test tests/Shop.Api.ConformanceTests --filter "FullyQualifiedName~ErrorPipelineTests|FullyQualifiedName~ApiContractTests"
+```

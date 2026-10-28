@@ -40,3 +40,8 @@ api.MapProductsEndpoints();
 api.MapOrdersEndpoints();
 
 app.Run();
+
+// Exposes the real host entry point to WebApplicationFactory without exposing module internals.
+public partial class Program
+{
+}
