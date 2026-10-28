@@ -1,0 +1,42 @@
+# Manual companion to the executable Newman Security proof folder.
+# Requires tasks 10, 11, 15, 16 and 19-21. Use a disposable database.
+# Obtain tokens and a real CustomerA order with the Newman setup or generated.http.
+# Replace placeholders locally. Never commit tokens or credentials.
+@baseUrl = http://localhost:8080
+@customerAToken = REPLACE_LOCALLY
+@customerBToken = REPLACE_LOCALLY
+@adminToken = REPLACE_LOCALLY
+@orderId = REPLACE_WITH_CUSTOMERA_ORDER_UUID
+@statusBody = REPLACE_WITH_VALID_TASK21_JSON
+
+### Establish that the resource exists for its owner: 200
+GET {{baseUrl}}/api/v1/orders/{{orderId}}
+Authorization: Bearer {{customerAToken}}
+
+### Required proof 1 - another customer gets 404 Problem Details
+GET {{baseUrl}}/api/v1/orders/{{orderId}}
+Authorization: Bearer {{customerBToken}}
+
+### Admin can read that same resource: 200
+GET {{baseUrl}}/api/v1/orders/{{orderId}}
+Authorization: Bearer {{adminToken}}
+
+### Required proof 2 - owner is a Customer and gets 403
+PATCH {{baseUrl}}/api/v1/orders/{{orderId}}/status
+Authorization: Bearer {{customerAToken}}
+Content-Type: application/json
+
+{{statusBody}}
+
+### Read again as the owner and compare with the first response: unchanged
+GET {{baseUrl}}/api/v1/orders/{{orderId}}
+Authorization: Bearer {{customerAToken}}
+
+### Anonymous access gets 401
+GET {{baseUrl}}/api/v1/orders/{{orderId}}
+
+### Unknown URL API version gets 404 Problem Details
+POST {{baseUrl}}/api/v999/auth/register
+Content-Type: application/json
+
+{"email":"unused@shop.test","password":"Example123!"}
