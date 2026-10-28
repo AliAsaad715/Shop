@@ -10,6 +10,9 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__Shop: Host=postgres;Port=5432;Database=${POSTGRES_DB:-shop};Username=${POSTGRES_USER:-shop};Password=${POSTGRES_PASSWORD:-shop}
+      # Seeded on startup in the Admin role; change both outside local demos
+      Admin__Email: ${ADMIN_EMAIL:-admin@shop.local}
+      Admin__Password: ${ADMIN_PASSWORD:-Admin123!}
     ports:
       - "${API_PORT:-8080}:8080"
     volumes:
