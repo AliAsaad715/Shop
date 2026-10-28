@@ -12,4 +12,9 @@
     <ProjectReference Include="..\..\Products\Shop.Modules.Products.Contracts\Shop.Modules.Products.Contracts.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Shop.Modules.Orders.IntegrationTests" />
+    <InternalsVisibleTo Include="Shop.Modules.Orders.UnitTests" />
+  </ItemGroup>
+
 </Project>

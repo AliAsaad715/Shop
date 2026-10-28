@@ -24,6 +24,7 @@
     <Project Path="tests/Shop.Api.ConformanceTests/Shop.Api.ConformanceTests.csproj" />
     <Project Path="tests/Shop.Api.IntegrationTests/Shop.Api.IntegrationTests.csproj" />
     <Project Path="tests/Shop.ArchitectureTests/Shop.ArchitectureTests.csproj" />
+    <Project Path="tests/Shop.Modules.Orders.UnitTests/Shop.Modules.Orders.UnitTests.csproj" />
     <Project Path="tests/Shop.Modules.Products.IntegrationTests/Shop.Modules.Products.IntegrationTests.csproj" />
     <Project Path="tests/Shop.Modules.Products.UnitTests/Shop.Modules.Products.UnitTests.csproj" />
     <Project Path="tests/Shop.Modules.Users.IntegrationTests/Shop.Modules.Users.IntegrationTests.csproj" />
