@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Shop.Modules.Users.IntegrationTests" />
+    <InternalsVisibleTo Include="Shop.Modules.Users.UnitTests" />
   </ItemGroup>
 
 </Project>
