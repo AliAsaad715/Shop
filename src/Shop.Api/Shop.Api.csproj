@@ -1,5 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
+  <PropertyGroup>
+    <!-- Shown as the OpenAPI document description -->
+    <Description>Distributed e-commerce platform: auth, products and orders.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- URL versioning, one OpenAPI document per version, and the docs UI at /docs -->
+    <PackageReference Include="Asp.Versioning.Http" />
+    <PackageReference Include="Asp.Versioning.OpenApi" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Scalar.AspNetCore" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- Lets dotnet ef use this host as the startup project for every module's migrations -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
