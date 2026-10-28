@@ -21,7 +21,9 @@ internal static class LoginEndpoint
             .WithTags("Auth")
             .WithSummary("Sign in with email and password to receive a JWT")
             .AllowAnonymous()
-            .ProducesProblem(StatusCodes.Status401Unauthorized);
+            .RequireRateLimiting(LoginRateLimitPolicy.Name)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
     public static async Task<Results<Ok<LoginResponse>, ProblemHttpResult>> HandleAsync(
         LoginRequest request, UserManager<User> users, SignInManager<User> signIn,
@@ -45,8 +47,8 @@ internal static class LoginEndpoint
             return InvalidCredentials();
         }
 
-        // Check credentials without issuing Identity cookies. Account lockout counting belongs to task 12.
-        var result = await signIn.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: false);
+        // Identity persists failures per account, independently of the caller's IP, without issuing cookies.
+        var result = await signIn.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
         if (!result.Succeeded || user.TwoFactorEnabled)
         {
             return InvalidCredentials();

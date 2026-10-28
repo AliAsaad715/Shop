@@ -1,0 +1,20 @@
+# Task 12. Local launch profile uses 5080; Docker Compose defaults to 8080.
+@baseUrl = http://localhost:5080
+
+### Send six times within one minute with default limits: five 401s, then 429.
+# The deliberately absent credentials avoid creating or locking a real account.
+# The 429 must be application/problem+json with common.too_many_requests,
+# a traceId and Retry-After (seconds). Wait that long before sending again.
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{"email":"","password":""}
+
+### Registration does not share the login quota: still 422 even after login returns 429.
+POST {{baseUrl}}/api/v1/auth/register
+Content-Type: application/json
+
+{"email":"invalid","password":""}
+
+### Profile authentication does not share the login quota: still 401.
+GET {{baseUrl}}/api/v1/users/me

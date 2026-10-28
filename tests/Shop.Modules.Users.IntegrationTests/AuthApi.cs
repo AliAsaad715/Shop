@@ -28,6 +28,8 @@ public sealed class AuthApi : IAsyncLifetime
     public HttpClient Client { get; private set; } = null!;
     public IServiceProvider Services => _app.Services;
     public string SigningKey { get; } = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+    public int LoginPermitLimit { get; init; } = 1000;
+    public int LoginWindowSeconds { get; init; } = 60;
 
     public void TrackUser(Guid id) => _createdUsers.Add(id);
 
@@ -52,6 +54,8 @@ public sealed class AuthApi : IAsyncLifetime
             ["Jwt:LifetimeMinutes"] = "15",
             ["Admin:Email"] = null,
             ["Admin:Password"] = null,
+            ["LoginRateLimit:PermitLimit"] = LoginPermitLimit.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["LoginRateLimit:WindowSeconds"] = LoginWindowSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
         });
         builder.Logging.ClearProviders();
         builder.Services.AddUsersModule();
@@ -64,6 +68,18 @@ public sealed class AuthApi : IAsyncLifetime
 
         _app.UseExceptionHandler();
         _app.UseStatusCodePages();
+        // TestServer has no real client connection. This header exists only in this test host.
+        _app.Use((context, next) =>
+        {
+            if (System.Net.IPAddress.TryParse(context.Request.Headers["X-Test-Client-IP"], out var address))
+            {
+                context.Connection.RemoteIpAddress = address;
+            }
+
+            return next(context);
+        });
+        _app.UseRouting();
+        _app.UseRateLimiter();
         _app.UseAuthentication();
         _app.UseAuthorization();
         _app.MapGroup("/api/v1").WithRequestValidation().MapUsersEndpoints();
