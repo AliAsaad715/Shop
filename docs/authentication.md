@@ -1,4 +1,4 @@
-# Login and current user (task 10)
+# Authentication and authorization (tasks 10-11)
 
 ## Configure the signing key
 
@@ -35,7 +35,10 @@ the later API run. The local API uses port 5080; Compose exposes port 8080.
 Other JWT settings are `Jwt__Issuer` (default `shop`), `Jwt__Audience` (default `shop-api`)
 and `Jwt__LifetimeMinutes` (default 15; allowed range 15-30). Both token issuance and
 Bearer validation use the same settings. Validation checks the signature, HS256 algorithm,
-issuer, audience and lifetime with 30 seconds of clock skew. Claims keep their original names.
+issuer, exact audience and lifetime with 30 seconds of clock skew. Claims keep their original
+names. Tokens must have type `JWT`, one nonempty GUID `sub`, one nonempty `email`, one
+nonempty `jti`, and at least one nonempty `role`. Invalid tokens fail authentication before
+an endpoint or its role policy can use their claims.
 
 ## Sign in
 
@@ -85,9 +88,40 @@ stamps are returned. Responses use `Cache-Control: no-store`. Missing/invalid to
 an invalid subject, or a deleted account return `401` Problem Details.
 
 The API's `/docs` supports entering the token in its Bearer authorization control.
-`/health`, `/docs`, registration and login remain anonymous. Global fallback authorization,
-role policies and `ICurrentUser` belong to task 11; per-IP rate limiting and counting failed
-logins toward account lockout belong to task 12.
+
+## Authorization (task 11)
+
+The default and fallback policies require a validated Bearer identity. A new endpoint
+without authorization metadata is protected automatically. Public endpoints explicitly use
+`AllowAnonymous()`: registration, login, product/category reads, `/health`, `/docs` and the
+OpenAPI documents. Unmatched routes return the standard `404` Problem Details response.
+An existing path requested with an unsupported HTTP method returns `405` Problem Details
+and an `Allow` header listing the supported methods. Routing errors complete before
+authorization; actual application routes still use the default and named policies.
+
+Reusable policy names are in `Shop.SharedKernel.Auth.Policies`:
+
+| Policy | Anonymous | Customer | Admin |
+| --- | --- | --- | --- |
+| Default / fallback | 401 | Allowed | Allowed |
+| `AdminOnly` | 401 | 403 | Allowed |
+| `CustomerOnly` | 401 | Allowed | 403 |
+
+Apply a role policy with `.RequireAuthorization(Policies.AdminOnly)` or
+`.RequireAuthorization(Policies.CustomerOnly)`. Role names are case-sensitive. An account
+with both roles satisfies both policies. A failed authentication returns `401`; an
+authenticated identity lacking the required role returns `403`. Both use the shared
+Problem Details contract with `code` and `traceId`.
+
+Modules can inject the scoped `Shop.SharedKernel.Auth.ICurrentUser` service. It exposes
+`IsAuthenticated`, `UserId`, `Email`, `Roles` and `IsInRole(role)` from the current request's
+validated token. It performs no database queries. For an anonymous caller or outside an
+HTTP request, the user ID and email are null, roles are empty and role checks return false.
+Use its user ID when determining ownership; request parameters do not supply the identity.
+Role policies use the claims issued with the token; `/users/me` loads the current profile
+and roles from Identity.
+
+Per-IP rate limiting and counting failed logins toward account lockout belong to task 12.
 
 ## Verify
 
@@ -102,3 +136,6 @@ use existing **disposable** databases instead, set `SHOP_USERS_TEST_CONNECTION` 
 The HTTP tests exercise real registration, login, JWT validation, profile lookup, malformed
 JSON, generic credential failures, and expired/tampered/misconfigured tokens. JWT unit
 tests verify claims, lifetime, unique token IDs, signatures and configuration validation.
+Authorization tests exercise an endpoint with no authorization metadata, the role-policy
+matrix, explicit anonymous access, current-user isolation, required claims, exact audience,
+JWT type, signatures, expiration and both sides of the 30-second clock-skew window.

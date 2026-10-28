@@ -1,4 +1,5 @@
 using Shop.Api.Docs;
+using Shop.Api.Routing;
 using Shop.Modules.Notifications;
 using Shop.Modules.Orders;
 using Shop.Modules.Products;
@@ -26,6 +27,8 @@ await app.MigrateModuleDatabasesAsync();
 // Unhandled exceptions and bare status codes (unknown route, missing token, rate limit) become Problem Details too
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+app.UseRouting();
+app.UseRoutingErrors();
 app.UseAuthentication();
 app.UseAuthorization();
 
