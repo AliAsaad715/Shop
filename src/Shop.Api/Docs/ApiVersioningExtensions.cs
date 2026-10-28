@@ -63,6 +63,7 @@ public static class ApiVersioningExtensions
         app.MapScalarApiReference("/docs", options =>
             {
                 options.WithTitle("Shop API");
+                options.DisableDefaultFonts();
                 foreach (var description in app.DescribeApiVersions())
                 {
                     options.AddDocument(description.GroupName, description.GroupName);
