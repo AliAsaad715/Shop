@@ -20,6 +20,7 @@ internal static class UsersTestServices
         return new ServiceCollection()
             .AddSingleton<IConfiguration>(configuration)
             .AddLogging()
+            .AddRouting()
             .AddUsersModule()
             .BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
     }
