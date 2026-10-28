@@ -28,9 +28,11 @@ app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseProductUploads();
 
 app.MapHealthChecks("/health").AllowAnonymous();
 app.MapApiDocs();
+app.MapProductImages();
 
 var api = app.MapVersionedApi();
 api.MapUsersEndpoints();
