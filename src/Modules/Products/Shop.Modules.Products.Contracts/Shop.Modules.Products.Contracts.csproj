@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Public interfaces and DTOs other modules may use; nothing else -->
+
+</Project>

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- Only SharedKernel and *.Contracts projects; never another module -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Shop.SharedKernel\Shop.SharedKernel.csproj" />
+    <ProjectReference Include="..\Shop.Modules.Products.Contracts\Shop.Modules.Products.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>
