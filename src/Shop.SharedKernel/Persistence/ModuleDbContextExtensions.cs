@@ -21,6 +21,8 @@ public static class ModuleDbContextExtensions
     public static IServiceCollection AddModuleDbContext<TContext>(this IServiceCollection services, string schema)
         where TContext : DbContext
     {
+        services.AddSingleton(new ModuleDbContextRegistration(typeof(TContext)));
+
         return services.AddDbContext<TContext>((serviceProvider, options) =>
         {
             // Read when the context is first created, so tests can override the setting
