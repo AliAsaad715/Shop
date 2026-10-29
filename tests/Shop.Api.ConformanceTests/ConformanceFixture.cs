@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
@@ -69,6 +70,9 @@ internal sealed class ConformanceApiFactory(string connectionString) : WebApplic
             ["Admin:Email"] = string.Empty,
             ["Admin:Password"] = string.Empty,
             ["AllowedHosts"] = "*",
+
+            // The host refuses to start without a signing key (task 10); a fresh one per run is never committed
+            ["Jwt:SigningKey"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)),
         }));
         builder.ConfigureTestServices(services =>
         {
