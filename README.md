@@ -30,8 +30,7 @@ The API sends `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and
 Authenticated responses use `Cache-Control: no-store`, including routing errors.
 
 `/api/*` uses a strict Content Security Policy with `default-src 'none'`, no inline scripts
-and no eval. `/docs` permits Scalar's local scripts, inline initialization and styles, and
-same-origin API calls. Scalar's external fonts are disabled so the UI does not require a CDN.
+and no eval. `/docs` permits Scalar's local scripts, inline initialization and styles, and same-origin API calls. Scalar's external fonts are disabled so the UI does not require a CDN.
 
 CORS permits only explicitly configured frontend origins. Development defaults to
 `http://localhost:5173`. For Compose, change `FRONTEND_ORIGIN` in `.env`, then run
