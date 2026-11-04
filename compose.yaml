@@ -28,6 +28,8 @@ services:
 
   postgres:
     image: postgres:18
+    # Comes back with Docker after a reboot, so a local `dotnet run` finds it on 5433
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-shop}
       POSTGRES_USER: ${POSTGRES_USER:-shop}
