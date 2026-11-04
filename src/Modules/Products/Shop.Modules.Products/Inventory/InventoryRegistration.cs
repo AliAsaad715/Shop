@@ -1,7 +1,9 @@
 using Grpc.Core;
+using Grpc.Health.V1;
 using Grpc.Net.Client.Configuration;
 using Inventory.V1;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Shop.Modules.Products.Contracts;
 
@@ -28,6 +30,12 @@ internal static class InventoryRegistration
             .ConfigureChannel(channel => channel.ServiceConfig = RetryOnUnavailable());
 
         services.AddScoped<IInventoryService, GrpcInventoryService>();
+
+        // The standard gRPC health service the warehouse serves beside the contract. Degraded, not Unhealthy:
+        // browsing works without the warehouse; only stock and orders need it.
+        services.AddGrpcClient<Health.HealthClient>((provider, client) =>
+            client.Address = provider.GetRequiredService<IOptions<InventoryOptions>>().Value.Address);
+        services.AddHealthChecks().AddCheck<WarehouseHealthCheck>("warehouse", failureStatus: HealthStatus.Degraded);
 
         return services;
     }

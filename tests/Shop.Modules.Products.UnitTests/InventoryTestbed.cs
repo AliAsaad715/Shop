@@ -1,10 +1,14 @@
 using System.Net;
 using System.Net.Sockets;
+using Grpc.Health.V1;
+using Grpc.HealthCheck;
+using Inventory.V1;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Logging;
 using Shop.Modules.Products.Contracts;
@@ -21,39 +25,55 @@ internal sealed class InventoryTestbed : IAsyncDisposable
     private readonly ServiceProvider _app;
     private readonly AsyncServiceScope _scope;
 
-    private InventoryTestbed(WebApplication? warehouseHost, ServiceProvider app, FakeWarehouse warehouse)
+    private InventoryTestbed(WebApplication? warehouseHost, ServiceProvider app, FakeWarehouse warehouse, HealthServiceImpl health)
     {
         _warehouseHost = warehouseHost;
         _app = app;
         _scope = app.CreateAsyncScope();
         Warehouse = warehouse;
+        WarehouseHealth = health;
         Inventory = _scope.ServiceProvider.GetRequiredService<IInventoryService>();
     }
 
     public FakeWarehouse Warehouse { get; }
+
+    /// <summary>The standard gRPC health service the fake warehouse serves, reporting SERVING at first.</summary>
+    public HealthServiceImpl WarehouseHealth { get; }
 
     public IInventoryService Inventory { get; }
 
     public static async Task<InventoryTestbed> StartAsync(IDictionary<string, string?>? settings = null)
     {
         var warehouse = new FakeWarehouse();
+        var health = new HealthServiceImpl();
+        health.SetStatus(InventoryService.Descriptor.FullName, HealthCheckResponse.Types.ServingStatus.Serving);
+
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
         builder.Services.AddGrpc();
         builder.Services.AddSingleton(warehouse);
+        builder.Services.AddSingleton(health);
 
         var host = builder.Build();
         host.MapGrpcService<FakeWarehouse>();
+        host.MapGrpcService<HealthServiceImpl>();
         await host.StartAsync();
 
         var server = host.GetTestServer();
-        return new InventoryTestbed(host, BuildApp("http://warehouse.test", settings, server.CreateHandler), warehouse);
+        return new InventoryTestbed(host, BuildApp("http://warehouse.test", settings, server.CreateHandler), warehouse, health);
     }
 
     /// <summary>The client pointed at a port nothing listens on, as when the warehouse container is stopped.</summary>
     public static InventoryTestbed WithStoppedWarehouse(IDictionary<string, string?>? settings = null) =>
-        new(null, BuildApp($"http://127.0.0.1:{ClosedPort()}", settings, primaryHandler: null), new FakeWarehouse());
+        new(null, BuildApp($"http://127.0.0.1:{ClosedPort()}", settings, primaryHandler: null), new FakeWarehouse(), new HealthServiceImpl());
+
+    /// <summary>The app's own verdict on the warehouse, as <c>/health</c> would report it.</summary>
+    public async Task<HealthReportEntry> CheckWarehouseHealthAsync()
+    {
+        var report = await _app.GetRequiredService<HealthCheckService>().CheckHealthAsync();
+        return report.Entries["warehouse"];
+    }
 
     public async ValueTask DisposeAsync()
     {

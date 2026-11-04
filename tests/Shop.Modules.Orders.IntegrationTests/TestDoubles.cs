@@ -3,8 +3,11 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Shop.Modules.Orders.Domain;
 using Shop.Modules.Products.Contracts;
 using Shop.SharedKernel.Auth;
 
@@ -56,20 +59,44 @@ public sealed class FakeProductCatalog : IProductCatalog
             new[] { Book, Lamp }.Where(product => productIds.Contains(product.Id)).ToDictionary(product => product.Id));
 }
 
-// Records every call so tests can prove the reserve, save, release flow
+// Records every call so tests can prove the reserve, save, release flow; tests can also make it refuse or fail
 public sealed class RecordingInventory : IInventoryService
 {
     public ConcurrentQueue<(Guid OrderId, IReadOnlyList<StockLine> Lines)> Reserved { get; } = new();
     public ConcurrentQueue<Guid> Released { get; } = new();
+
+    // Every order sent to the warehouse, whether or not the call succeeded
+    public ConcurrentQueue<Guid> ReserveAttempts { get; } = new();
+    public ConcurrentQueue<Guid> ReleaseAttempts { get; } = new();
+
     public bool RefuseReservations { get; set; }
+    public IReadOnlyList<StockShortage> Shortages { get; set; } = [];
+
+    // Thrown in place of an answer, as a warehouse that is down or slow would
+    public Func<Exception>? ReserveFailure { get; set; }
+    public Func<Exception>? ReleaseFailure { get; set; }
+
+    public void Reset()
+    {
+        RefuseReservations = false;
+        Shortages = [];
+        ReserveFailure = null;
+        ReleaseFailure = null;
+    }
 
     public Task<int> GetAvailableAsync(Guid productId, CancellationToken ct) => Task.FromResult(int.MaxValue);
 
     public Task<ReserveResult> ReserveAsync(Guid orderId, IReadOnlyList<StockLine> lines, CancellationToken ct)
     {
+        ReserveAttempts.Enqueue(orderId);
+        if (ReserveFailure is { } failure)
+        {
+            return Task.FromException<ReserveResult>(failure());
+        }
+
         if (RefuseReservations)
         {
-            return Task.FromResult(new ReserveResult(false));
+            return Task.FromResult(new ReserveResult(false, Shortages));
         }
 
         Reserved.Enqueue((orderId, lines));
@@ -78,7 +105,31 @@ public sealed class RecordingInventory : IInventoryService
 
     public Task ReleaseAsync(Guid orderId, CancellationToken ct)
     {
+        ReleaseAttempts.Enqueue(orderId);
+        if (ReleaseFailure is { } failure)
+        {
+            return Task.FromException(failure());
+        }
+
         Released.Enqueue(orderId);
         return Task.CompletedTask;
+    }
+}
+
+// Fails the next save that adds an order, as a database dropping the connection mid-request would
+public sealed class OrderSaveFailure : SaveChangesInterceptor
+{
+    public bool FailNextOrderSave { get; set; }
+
+    public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+        DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+    {
+        if (FailNextOrderSave && eventData.Context!.ChangeTracker.Entries<Order>().Any(entry => entry.State == EntityState.Added))
+        {
+            FailNextOrderSave = false;
+            throw new DbUpdateException("Simulated failure saving the order.");
+        }
+
+        return base.SavingChangesAsync(eventData, result, cancellationToken);
     }
 }

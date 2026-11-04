@@ -31,6 +31,7 @@ public sealed class OrdersApiFixture : IAsyncLifetime
 
     public WebApplication App { get; private set; } = null!;
     public RecordingInventory Inventory { get; } = new();
+    public OrderSaveFailure SaveFailure { get; } = new();
     public TestLogSink Logs { get; } = new();
 
     public async Task InitializeAsync()
@@ -48,8 +49,14 @@ public sealed class OrdersApiFixture : IAsyncLifetime
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
         builder.Logging.AddProvider(Logs);
-        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:Shop"] = connectionString });
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:Shop"] = connectionString,
+            // The tests run each pass themselves; the background worker never wakes during a run
+            ["Orders:PendingReleases:PollInterval"] = "01:00:00",
+        });
         builder.Services.AddOrdersModule();
+        builder.Services.AddDbContext<OrdersDbContext>(options => options.AddInterceptors(SaveFailure));
         builder.Services.AddErrorContract();
         builder.Services.AddSingleton<IProductCatalog, FakeProductCatalog>();
         builder.Services.AddSingleton<IInventoryService>(Inventory);
@@ -76,6 +83,7 @@ public sealed class OrdersApiFixture : IAsyncLifetime
             var context = scope.ServiceProvider.GetRequiredService<OrdersDbContext>();
             await context.Database.MigrateAsync();
             await context.Orders.ExecuteDeleteAsync();
+            await context.PendingReleases.ExecuteDeleteAsync();
         }
 
         await App.StartAsync();

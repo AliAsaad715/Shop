@@ -1,11 +1,12 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.Extensions.Logging;
 using Shop.Modules.Orders.Data;
 using Shop.Modules.Orders.Domain;
 using Shop.Modules.Orders.Reading;
+using Shop.Modules.Orders.Releases;
 using Shop.Modules.Products.Contracts;
 using Shop.SharedKernel.Auth;
 using Shop.SharedKernel.Errors;
@@ -14,6 +15,9 @@ namespace Shop.Modules.Orders.Placement;
 
 internal static class CreateOrderEndpoint
 {
+    // How long a client waits before trying again while the warehouse is down
+    private const int RetryAfterSeconds = 5;
+
     public static void Map(IEndpointRouteBuilder endpoints) =>
         endpoints.MapPost("/orders", HandleAsync)
             .WithName("CreateOrder")
@@ -22,16 +26,17 @@ internal static class CreateOrderEndpoint
             .RequireAuthorization(Policies.CustomerOnly)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
-            .ProducesProblem(StatusCodes.Status409Conflict);
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+            .ProducesProblem(StatusCodes.Status504GatewayTimeout);
 
     /// <summary>
-    /// Reserve the stock, save the order, and release the reservation if the save fails, so every
-    /// exit other than 201 leaves the stock as it was. Requirement 2 swaps the inventory for a gRPC
-    /// client without changing this flow.
+    /// Reserve the stock, save the order, and give the reservation back whenever the order isn't saved,
+    /// so every exit other than 201 leaves the stock as it was.
     /// </summary>
     public static async Task<Results<Created<OrderResponse>, ProblemHttpResult>> HandleAsync(
         CreateOrderRequest request, OrdersDbContext context, ICurrentUser currentUser, IProductCatalog catalog,
-        IInventoryService inventory, TimeProvider time, HttpContext httpContext, ILoggerFactory loggers, CancellationToken ct)
+        IInventoryService inventory, ReservationReleaser releaser, TimeProvider time, HttpContext httpContext, CancellationToken ct)
     {
         if (currentUser.UserId is not { } customerId)
         {
@@ -58,12 +63,44 @@ internal static class CreateOrderEndpoint
             }),
             time.GetUtcNow());
 
-        var reservation = await inventory.ReserveAsync(
-            order.Id, order.Lines.Select(line => new StockLine(line.ProductId, line.Quantity)).ToList(), ct);
+        ReserveResult reservation;
+        try
+        {
+            // Not the request's token: a reservation in flight runs to its own deadline, so a client that
+            // disconnects never leaves its outcome unknown
+            reservation = await inventory.ReserveAsync(
+                order.Id, order.Lines.Select(line => new StockLine(line.ProductId, line.Quantity)).ToList(), CancellationToken.None);
+        }
+        catch (InventoryException error)
+        {
+            // Down, slow or failing, the warehouse may still have applied the reservation (an answer lost on
+            // the way back, or one that came after the deadline), so it goes back before the client hears
+            await releaser.ReleaseAsync(order.Id);
+
+            if (error is InventoryUnavailableException)
+            {
+                httpContext.Response.Headers.RetryAfter = RetryAfterSeconds.ToString(CultureInfo.InvariantCulture);
+                return Problems.Create(StatusCodes.Status503ServiceUnavailable, ErrorCodes.Orders.WarehouseUnavailable,
+                    "Warehouse unavailable",
+                    $"The warehouse can't be reached, so no order was placed. Try again in {RetryAfterSeconds} seconds.");
+            }
+
+            if (error is InventoryTimeoutException)
+            {
+                return Problems.Create(StatusCodes.Status504GatewayTimeout, ErrorCodes.Orders.WarehouseTimeout,
+                    "Warehouse timed out", "The warehouse didn't answer in time, so no order was placed. Try again.");
+            }
+
+            throw;
+        }
+
         if (!reservation.Success)
         {
-            return Problems.Create(StatusCodes.Status409Conflict, ErrorCodes.Orders.InsufficientStock,
+            // Nothing was reserved, so nothing goes back
+            var refused = Problems.Create(StatusCodes.Status409Conflict, ErrorCodes.Orders.InsufficientStock,
                 "Insufficient stock", "Not enough stock is available for one or more products.");
+            refused.ProblemDetails.Extensions["shortages"] = reservation.Shortages.Select(ShortageResponse.From).ToArray();
+            return refused;
         }
 
         try
@@ -73,25 +110,11 @@ internal static class CreateOrderEndpoint
         }
         catch (Exception)
         {
-            // Not the request's token: a client that disconnects must still get its reservation released
-            await ReleaseAfterFailedSaveAsync(inventory, order.Id, loggers.CreateLogger(typeof(CreateOrderEndpoint)));
+            await releaser.ReleaseAsync(order.Id);
             throw;
         }
 
         var location = $"{httpContext.Request.PathBase}{httpContext.Request.Path.ToString().TrimEnd('/')}/{order.Id}";
         return TypedResults.Created(location, OrderResponse.From(order));
-    }
-
-    private static async Task ReleaseAfterFailedSaveAsync(IInventoryService inventory, Guid orderId, ILogger logger)
-    {
-        try
-        {
-            await inventory.ReleaseAsync(orderId, CancellationToken.None);
-        }
-        catch (Exception releaseError)
-        {
-            // The save error is the one the client must see; release is idempotent and can be retried
-            logger.LogError(releaseError, "Could not release the reservation for order {OrderId} after its save failed", orderId);
-        }
     }
 }

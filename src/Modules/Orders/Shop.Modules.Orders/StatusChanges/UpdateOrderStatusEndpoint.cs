@@ -3,11 +3,10 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using Shop.Modules.Orders.Data;
 using Shop.Modules.Orders.Domain;
 using Shop.Modules.Orders.Reading;
-using Shop.Modules.Products.Contracts;
+using Shop.Modules.Orders.Releases;
 using Shop.SharedKernel.Auth;
 using Shop.SharedKernel.Errors;
 
@@ -33,7 +32,7 @@ internal static class UpdateOrderStatusEndpoint
     /// </summary>
     public static async Task<Results<Ok<OrderResponse>, ProblemHttpResult>> HandleAsync(
         Guid id, UpdateOrderStatusRequest request, OrdersDbContext context, ICurrentUser currentUser,
-        IInventoryService inventory, TimeProvider time, ILoggerFactory loggers, HttpResponse response, CancellationToken ct)
+        ReservationReleaser releaser, TimeProvider time, HttpResponse response, CancellationToken ct)
     {
         response.Headers.CacheControl = "no-store";
         var order = await context.Orders.AsSplitQuery()
@@ -57,23 +56,11 @@ internal static class UpdateOrderStatusEndpoint
 
         if (next == OrderStatus.Cancelled)
         {
-            // After the save, so a cancellation that failed to commit never gives its stock back
-            await ReleaseAsync(inventory, order.Id, loggers.CreateLogger(typeof(UpdateOrderStatusEndpoint)));
+            // After the save, so a cancellation that failed to commit never gives its stock back. A release the
+            // warehouse can't take now is queued and retried; the cancellation stands either way.
+            await releaser.ReleaseAsync(order.Id);
         }
 
         return TypedResults.Ok(OrderResponse.From(order));
-    }
-
-    private static async Task ReleaseAsync(IInventoryService inventory, Guid orderId, ILogger logger)
-    {
-        try
-        {
-            await inventory.ReleaseAsync(orderId, CancellationToken.None);
-        }
-        catch (Exception error)
-        {
-            // The order is already cancelled; release is idempotent, so a retry can return the stock later
-            logger.LogError(error, "Order {OrderId} was cancelled but its reservation could not be released", orderId);
-        }
     }
 }
