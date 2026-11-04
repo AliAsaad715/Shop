@@ -184,8 +184,19 @@ until the warehouse accepts. It looks every 5 s (`Orders:PendingReleases:PollInt
 retry waits 5 s, then twice as long each time, up to 5 minutes.
 
 `/health` also asks the warehouse's standard gRPC health service. When the warehouse is down or not serving it
-reports `Degraded`, still with status 200, so browsing keeps working. Product details without stock while the
-warehouse is down come with task R2-08.
+reports `Degraded`, still with status 200, so browsing keeps working.
+
+## Product stock (task R2-08)
+
+`GET /api/v1/products/{id}` asks the warehouse for the product's stock and adds it to the product:
+
+| `stockStatus` | `available` | When |
+| --- | --- | --- |
+| `in_stock` | units left | The warehouse has at least one |
+| `out_of_stock` | `0` | None left, or a product the warehouse has never stocked |
+| `unknown` | `null` | The warehouse is down or missed the 500 ms deadline; the product still loads with 200 |
+
+The product list leaves stock out, so a page of products never makes one warehouse call per product.
 
 ## Verify
 

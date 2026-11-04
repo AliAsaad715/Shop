@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Shop.Modules.Products.Contracts;
 using Shop.Modules.Products.Data;
 using Shop.Modules.Products.Domain;
 using Shop.SharedKernel.Errors;
@@ -28,6 +29,7 @@ public sealed class ProductCatalogFixture : IAsyncLifetime
     public WebApplication App { get; private set; } = null!;
     public HttpClient Client { get; private set; } = null!;
     public Guid BooksCategoryId { get; private set; }
+    public StockInventory Inventory { get; } = new();
 
     public async Task InitializeAsync()
     {
@@ -46,10 +48,11 @@ public sealed class ProductCatalogFixture : IAsyncLifetime
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:Shop"] = connectionString,
-            // Required at startup; the catalog never calls the warehouse
+            // Required at startup; the warehouse itself is StockInventory below
             ["Inventory:Address"] = "http://localhost:50051",
         });
         builder.Services.AddProductsModule();
+        builder.Services.AddSingleton<IInventoryService>(Inventory);
         builder.Services.AddErrorContract();
         builder.Services.AddAuthentication();
         builder.Services.AddAuthorization(options =>
