@@ -48,6 +48,8 @@ public static class ErrorCodes
         public const string NotFound = "orders.not_found"; // 404, task 20: also for someone else's order
         public const string InvalidStatusTransition = "orders.invalid_status_transition"; // 409, task 21
         public const string InsufficientStock = "orders.insufficient_stock"; // 409, once Requirement 2's warehouse can refuse
+        public const string WarehouseUnavailable = "orders.warehouse_unavailable"; // 503, task R2-07: with Retry-After; no order placed
+        public const string WarehouseTimeout = "orders.warehouse_timeout"; // 504, task R2-07: the warehouse missed its deadline; no order placed
     }
 
     // The code for an error that doesn't carry one, such as routing's bare 404

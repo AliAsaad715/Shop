@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Shop.Modules.Orders.Domain;
+using Shop.Modules.Orders.Releases;
 
 namespace Shop.Modules.Orders.Data;
 
@@ -12,6 +13,8 @@ internal sealed class OrdersDbContext(DbContextOptions<OrdersDbContext> options)
     public DbSet<OrderLine> OrderLines => Set<OrderLine>();
 
     public DbSet<OrderStatusChange> OrderStatusHistory => Set<OrderStatusChange>();
+
+    public DbSet<PendingRelease> PendingReleases => Set<PendingRelease>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

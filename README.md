@@ -164,7 +164,28 @@ covers the whole call, and `UNAVAILABLE` is retried inside it, up to 3 attempts 
 reach callers as `InventoryUnavailableException` (warehouse down or unreachable), `InventoryTimeoutException`
 (deadline passed, so a reservation may still have landed) or `InventoryException` (anything else).
 
-Until the warehouse joins compose in task R2-09, placing an order through compose fails.
+Until the warehouse joins compose in task R2-09, placing an order through compose answers 503.
+
+## Warehouse failures (task R2-07)
+
+An order is saved only after the warehouse reserved its stock, and every other outcome leaves the stock as it
+was. Errors keep the Problem Details format with a `code`:
+
+| Case | What the app does | Client sees |
+| --- | --- | --- |
+| Not enough stock | No order saved | 409 `orders.insufficient_stock`, with `shortages` listing `productId`, `requested` and `available` |
+| Warehouse down | Releases in case the reserve landed; no order saved | 503 `orders.warehouse_unavailable` with `Retry-After: 5` |
+| Warehouse slow (deadline passed) | Releases in case the reserve landed; no order saved | 504 `orders.warehouse_timeout` |
+| Save fails after a reserve | Releases | 500 `common.internal_error` |
+| Admin cancels an order | Releases | 200 |
+
+A release the warehouse can't take is written to `orders.pending_releases`, and a background worker retries it
+until the warehouse accepts. It looks every 5 s (`Orders:PendingReleases:PollInterval`), and after a failed
+retry waits 5 s, then twice as long each time, up to 5 minutes.
+
+`/health` also asks the warehouse's standard gRPC health service. When the warehouse is down or not serving it
+reports `Degraded`, still with status 200, so browsing keeps working. Product details without stock while the
+warehouse is down come with task R2-08.
 
 ## Verify
 

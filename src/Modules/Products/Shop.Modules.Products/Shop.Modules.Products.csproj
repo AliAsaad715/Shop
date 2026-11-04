@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.HealthCheck" />
     <PackageReference Include="Grpc.Net.ClientFactory" />
     <PackageReference Include="Grpc.Tools">
       <PrivateAssets>all</PrivateAssets>

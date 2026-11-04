@@ -157,6 +157,37 @@ namespace Shop.Modules.Orders.Data.Migrations
                     b.ToTable("order_status_history", "orders");
                 });
 
+            modelBuilder.Entity("Shop.Modules.Orders.Releases.PendingRelease", b =>
+                {
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_id");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<string>("LastError")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("last_error");
+
+                    b.Property<DateTimeOffset>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_at");
+
+                    b.Property<DateTimeOffset>("QueuedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("queued_at");
+
+                    b.HasKey("OrderId");
+
+                    b.HasIndex("NextAttemptAt");
+
+                    b.ToTable("pending_releases", "orders");
+                });
+
             modelBuilder.Entity("Shop.Modules.Orders.Domain.OrderLine", b =>
                 {
                     b.HasOne("Shop.Modules.Orders.Domain.Order", null)
