@@ -11,6 +11,25 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.Net.ClientFactory" />
+    <PackageReference Include="Grpc.Tools">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- The warehouse's shared contract. Grpc.Tools generates the client on every build; internal,
+       so gRPC types stay behind IInventoryService and other modules never see them -->
+  <ItemGroup>
+    <Protobuf Include="..\..\..\..\contracts\inventory\v1\inventory.proto"
+              ProtoRoot="..\..\..\..\contracts"
+              GrpcServices="Client"
+              Access="Internal"
+              Link="Inventory\inventory.proto" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Shop.Modules.Products.IntegrationTests" />
   </ItemGroup>
 

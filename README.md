@@ -56,6 +56,31 @@ HSTS is sent for HTTPS in non-Development environments, with a 180-day maximum a
 It is omitted over HTTP and on the framework's excluded localhost addresses. Local
 development does not enable HSTS or change the machine's trusted certificates automatically.
 
+## Inventory contract (task R2-01)
+
+The app and the Go warehouse share one file,
+[`contracts/inventory/v1/inventory.proto`](contracts/inventory/v1/inventory.proto).
+Changes must be additive: new fields take new numbers, and existing numbers are never reused.
+
+- **C#**: Grpc.Tools compiles the client into `Shop.Modules.Products` on every build, as
+  internal types in the `Inventory.V1` namespace, so no other step is needed.
+- **Go**: `warehouse/gen` is written by `buf generate` and committed. After changing the proto,
+  regenerate it with [buf](https://buf.build/docs/cli/installation/) and Go 1.27, then commit the result:
+
+```sh
+cd warehouse
+buf generate
+```
+
+CI ([contracts.yml](.github/workflows/contracts.yml)) runs `buf lint`, runs `buf breaking`
+against `main`, and fails when `warehouse/gen` doesn't match the proto. The same checks from the
+repository root:
+
+```sh
+buf lint contracts
+buf breaking contracts --against '.git#branch=main,subdir=contracts'
+```
+
 ## Verify
 
 ```sh

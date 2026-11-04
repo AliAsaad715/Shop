@@ -18,6 +18,14 @@ trim_trailing_whitespace = false
 [*.sh]
 end_of_line = lf
 
+# buf format's style
+[*.proto]
+indent_size = 2
+
+# gofmt indents with tabs
+[{*.go,go.mod}]
+indent_style = tab
+
 [*.cs]
 # Style preferences show as IDE suggestions; they don't fail the build
 
