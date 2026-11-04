@@ -17,6 +17,8 @@ COPY src/Modules/Notifications/Shop.Modules.Notifications.Contracts/Shop.Modules
 RUN dotnet restore src/Shop.Api/Shop.Api.csproj
 
 COPY src/ src/
+# The warehouse contract; Grpc.Tools compiles the inventory client from it during publish
+COPY contracts/ contracts/
 RUN dotnet publish src/Shop.Api/Shop.Api.csproj --configuration Release --no-restore --output /app/publish -p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
