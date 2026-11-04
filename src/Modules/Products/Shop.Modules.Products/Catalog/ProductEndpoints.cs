@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Shop.Modules.Products.Contracts;
 using Shop.Modules.Products.Data;
 using Shop.Modules.Products.Domain;
 using Shop.SharedKernel.Errors;
@@ -23,7 +24,7 @@ internal static class ProductEndpoints
         endpoints.MapGet("/products/{id}", GetAsync)
             .WithName("GetProduct")
             .WithTags("Products")
-            .WithSummary("Get a product and its image URL")
+            .WithSummary("Get a product, its image URL and its stock from the warehouse (stockStatus unknown when the warehouse can't answer)")
             .AllowAnonymous()
             .ProducesProblem(StatusCodes.Status404NotFound);
 
@@ -51,14 +52,33 @@ internal static class ProductEndpoints
         return TypedResults.Ok(new PagedResponse<ProductResponse>(items, request.Page, request.PageSize, totalCount));
     }
 
-    public static async Task<Results<Ok<ProductResponse>, ProblemHttpResult>> GetAsync(
-        Guid id, ProductsDbContext context, CancellationToken ct)
+    public static async Task<Results<Ok<ProductDetailsResponse>, ProblemHttpResult>> GetAsync(
+        Guid id, ProductsDbContext context, IInventoryService inventory, CancellationToken ct)
     {
         var product = await Responses(context.Products.AsNoTracking().Where(product => product.Id == id)).SingleOrDefaultAsync(ct);
+        if (product is null)
+        {
+            return Problems.Create(StatusCodes.Status404NotFound, ErrorCodes.Products.NotFound, "Product not found");
+        }
 
-        return product is null
-            ? Problems.Create(StatusCodes.Status404NotFound, ErrorCodes.Products.NotFound, "Product not found")
-            : TypedResults.Ok(product);
+        var (stockStatus, available) = await StockAsync(inventory, id, ct);
+        return TypedResults.Ok(ProductDetailsResponse.From(product, stockStatus, available));
+    }
+
+    // A warehouse that is down or slow costs the page its stock count, never the page itself;
+    // the inventory client has already logged why
+    private static async Task<(StockStatus Status, int? Available)> StockAsync(
+        IInventoryService inventory, Guid productId, CancellationToken ct)
+    {
+        try
+        {
+            var available = await inventory.GetAvailableAsync(productId, ct);
+            return (available > 0 ? StockStatus.InStock : StockStatus.OutOfStock, available);
+        }
+        catch (InventoryException)
+        {
+            return (StockStatus.Unknown, null);
+        }
     }
 
     public static async Task<Ok<List<CategoryResponse>>> CategoriesAsync(ProductsDbContext context, CancellationToken ct) =>

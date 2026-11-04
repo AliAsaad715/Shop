@@ -90,6 +90,75 @@ public sealed class ProductCatalogTests(ProductCatalogFixture fixture) : IClassF
     }
 
     [Fact]
+    public async Task DetailsShowTheWarehouseStock()
+    {
+        fixture.Inventory.Stock[ProductCatalogFixture.SecondBookId] = 7;
+
+        var product = await DetailsAsync(ProductCatalogFixture.SecondBookId);
+
+        Assert.Equal("in_stock", product.GetProperty("stockStatus").GetString());
+        Assert.Equal(7, product.GetProperty("available").GetInt32());
+    }
+
+    [Fact]
+    public async Task ProductTheWarehouseHasNoneOfIsOutOfStock()
+    {
+        // Never stocked, so the warehouse counts it as 0
+        fixture.Inventory.Stock.TryRemove(ProductCatalogFixture.FirstBookId, out _);
+
+        var product = await DetailsAsync(ProductCatalogFixture.FirstBookId);
+
+        Assert.Equal("out_of_stock", product.GetProperty("stockStatus").GetString());
+        Assert.Equal(0, product.GetProperty("available").GetInt32());
+    }
+
+    [Theory]
+    [InlineData("down")]
+    [InlineData("slow")]
+    public async Task DetailsStillLoadWithUnknownStockWhenTheWarehouseIsDownOrSlow(string warehouse)
+    {
+        fixture.Inventory.Failure = warehouse == "down"
+            ? () => new InventoryUnavailableException("The warehouse is down.")
+            : () => new InventoryTimeoutException("The warehouse missed the deadline.");
+        try
+        {
+            var product = await DetailsAsync(ProductCatalogFixture.SecondBookId);
+
+            Assert.Equal("Second book", product.GetProperty("name").GetString());
+            Assert.Equal("unknown", product.GetProperty("stockStatus").GetString());
+            Assert.Equal(JsonValueKind.Null, product.GetProperty("available").ValueKind);
+        }
+        finally
+        {
+            fixture.Inventory.Failure = null;
+        }
+    }
+
+    [Fact]
+    public async Task MissingProductIs404WithoutAskingTheWarehouse()
+    {
+        var missing = Guid.CreateVersion7();
+
+        using var problem = await AssertProblemAsync($"/api/v1/products/{missing}", HttpStatusCode.NotFound, ErrorCodes.Products.NotFound);
+
+        Assert.DoesNotContain(missing, fixture.Inventory.Lookups);
+    }
+
+    [Fact]
+    public async Task ListLeavesStockOutAndNeverAsksTheWarehouse()
+    {
+        var lookupsBefore = fixture.Inventory.Lookups.Count;
+
+        using var response = await fixture.Client.GetAsync("/api/v1/products");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.All(json.RootElement.GetProperty("items").EnumerateArray(),
+            item => Assert.False(item.TryGetProperty("stockStatus", out _)));
+        Assert.Equal(lookupsBefore, fixture.Inventory.Lookups.Count);
+    }
+
+    [Fact]
     public async Task MissingProductReturnsTheProducts404Contract()
     {
         using var problem = await AssertProblemAsync($"/api/v1/products/{Guid.CreateVersion7()}", HttpStatusCode.NotFound, ErrorCodes.Products.NotFound);
@@ -159,6 +228,13 @@ public sealed class ProductCatalogTests(ProductCatalogFixture fixture) : IClassF
 
     private async Task<PagedResponse<ProductResponse>> ListAsync(string path) =>
         (await fixture.Client.GetFromJsonAsync<PagedResponse<ProductResponse>>(path))!;
+
+    private async Task<JsonElement> DetailsAsync(Guid productId)
+    {
+        using var response = await fixture.Client.GetAsync($"/api/v1/products/{productId}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await response.Content.ReadFromJsonAsync<JsonElement>();
+    }
 
     private async Task<JsonDocument> AssertProblemAsync(string path, HttpStatusCode status, string code)
     {
