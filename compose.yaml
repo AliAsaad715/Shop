@@ -14,6 +14,8 @@ services:
       # Seeded on startup in the Admin role; change both outside local demos
       Admin__Email: ${ADMIN_EMAIL:-admin@shop.local}
       Admin__Password: ${ADMIN_PASSWORD:-Admin123!}
+      # The demo catalog, with the same product IDs as the warehouse seed (warehouse/db/002_seed.sql)
+      DemoSeed__Enabled: ${DEMO_SEED_ENABLED:-true}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:-}
       LoginRateLimit__PermitLimit: ${LOGIN_RATE_LIMIT_PERMIT_LIMIT:-5}
       LoginRateLimit__WindowSeconds: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-60}

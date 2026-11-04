@@ -29,6 +29,11 @@
               Link="Inventory\inventory.proto" />
   </ItemGroup>
 
+  <!-- The placeholder the demo seeder copies into image storage for each demo product -->
+  <ItemGroup>
+    <EmbeddedResource Include="Seeding\demo-product.png" LogicalName="Shop.Modules.Products.Seeding.demo-product.png" />
+  </ItemGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Shop.Modules.Products.IntegrationTests" />
   </ItemGroup>

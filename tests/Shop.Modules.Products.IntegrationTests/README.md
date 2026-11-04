@@ -34,3 +34,7 @@ Coverage includes category filtering, default paging (`page=1`, `pageSize=20`), 
 Product responses expose app-relative image URLs under `/images/`, escaping each stored path segment. Task 15 supplies image storage and serving at that route. Orders receives only product IDs, names and current prices from `IProductCatalog.GetByIdsAsync`; duplicate IDs are coalesced and unknown IDs are omitted so order creation can reject them.
 
 The schema, upload and catalog test classes all share the `Products database` collection, so they run one at a time and a schema rollback cannot race the other tests when `SHOP_PRODUCTS_TEST_CONNECTION` points to the same disposable database.
+
+## Demo seed
+
+`DemoSeedTests` starts the Products module with `DemoSeed:Enabled=true` against PostgreSQL and checks that the seeder adds the six demo products with a PNG image each, and that running it again adds nothing and keeps an edited price. It also reads `warehouse/db/002_seed.sql` and fails unless the warehouse stocks exactly the app's demo product IDs, with one unit of product X.
