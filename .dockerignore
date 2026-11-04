@@ -9,3 +9,6 @@
 **/TestResults
 .git
 .env
+
+# The Go warehouse builds from its own context (compose's inventory service), never the API image
+warehouse
