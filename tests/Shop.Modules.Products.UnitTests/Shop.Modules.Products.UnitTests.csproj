@@ -6,12 +6,26 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Grpc.AspNetCore.Server" />
+    <PackageReference Include="Grpc.Tools">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+  </ItemGroup>
+
+  <!-- The same contract compiled as a server, so FakeWarehouse can play the Go warehouse in-process -->
+  <ItemGroup>
+    <Protobuf Include="..\..\contracts\inventory\v1\inventory.proto"
+              ProtoRoot="..\..\contracts"
+              GrpcServices="Server"
+              Access="Internal" />
   </ItemGroup>
 
   <ItemGroup>

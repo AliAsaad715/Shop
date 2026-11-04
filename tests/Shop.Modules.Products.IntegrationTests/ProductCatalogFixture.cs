@@ -43,7 +43,12 @@ public sealed class ProductCatalogFixture : IAsyncLifetime
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = Environments.Production });
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
-        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:Shop"] = connectionString });
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:Shop"] = connectionString,
+            // Required at startup; the catalog never calls the warehouse
+            ["Inventory:Address"] = "http://localhost:50051",
+        });
         builder.Services.AddProductsModule();
         builder.Services.AddErrorContract();
         builder.Services.AddAuthentication();

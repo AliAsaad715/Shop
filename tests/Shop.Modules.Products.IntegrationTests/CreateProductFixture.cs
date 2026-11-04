@@ -49,6 +49,8 @@ public sealed class CreateProductFixture : IAsyncLifetime
         {
             ["ConnectionStrings:Shop"] = connectionString,
             ["Images:RootPath"] = ImageRoot,
+            // Required at startup; creating a product never calls the warehouse
+            ["Inventory:Address"] = "http://localhost:50051",
         });
         builder.Services.AddProductsModule();
         builder.Services.AddDbContext<ProductsDbContext>(options => options.AddInterceptors(SaveFailure));

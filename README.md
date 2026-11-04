@@ -89,9 +89,10 @@ buf breaking contracts --against '.git#branch=main,subdir=contracts'
 
 ## Warehouse service (task R2-02)
 
-[`warehouse/`](warehouse), the Inventory submodule, is the Go service that owns stock. It serves the contract over gRPC on
-port 50051 and keeps a pgx connection pool to its own PostgreSQL database. Until R2-04, `GetStock`,
-`Reserve` and `Release` answer `UNIMPLEMENTED`; compose starts it with its database in R2-09.
+[`warehouse/`](warehouse), the Inventory submodule, is the Go service that owns stock. It serves the
+contract over gRPC on port 50051 and keeps a pgx connection pool to its own PostgreSQL database. Until
+R2-04, `GetStock`, `Reserve` and `Release` answer `UNIMPLEMENTED`; compose starts it with its database
+in R2-09.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -145,6 +146,25 @@ which compose sets by default (`DEMO_SEED_ENABLED` in `.env`). Production and th
 Existing products are never changed on restart. `DemoSeedTests` fails if `002_seed.sql` and the app's
 list of demo products drift apart. Products created later through the API have no stock row, so the
 warehouse counts them as 0 available.
+
+## Warehouse client (task R2-06)
+
+`IInventoryService` is a gRPC client of the warehouse, inside `Shop.Modules.Products`; the Requirement 1
+placeholder is gone. Orders and other modules still call only the interface.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `Inventory:Address` | `http://localhost:50051` in Development; required otherwise | The warehouse's gRPC address. Compose sets `http://inventory:50051`. |
+| `Inventory:GetStockTimeout` | `00:00:00.500` | Deadline for one stock lookup |
+| `Inventory:ReserveTimeout` | `00:00:02` | Deadline for one reservation |
+| `Inventory:ReleaseTimeout` | `00:00:02` | Deadline for one release |
+
+The app doesn't start without a valid address, or with a timeout outside 0 to 30 seconds. Each deadline
+covers the whole call, and `UNAVAILABLE` is retried inside it, up to 3 attempts with backoff. Failures
+reach callers as `InventoryUnavailableException` (warehouse down or unreachable), `InventoryTimeoutException`
+(deadline passed, so a reservation may still have landed) or `InventoryException` (anything else).
+
+Until the warehouse joins compose in task R2-09, placing an order through compose fails.
 
 ## Verify
 

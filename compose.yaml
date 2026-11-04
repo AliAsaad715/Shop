@@ -20,6 +20,8 @@ services:
       LoginRateLimit__PermitLimit: ${LOGIN_RATE_LIMIT_PERMIT_LIMIT:-5}
       LoginRateLimit__WindowSeconds: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-60}
       Cors__AllowedOrigins__0: ${FRONTEND_ORIGIN:-http://localhost:5173}
+      # The warehouse's gRPC endpoint: plain HTTP/2 inside the compose network
+      Inventory__Address: http://inventory:50051
     ports:
       - "${API_PORT:-8080}:8080"
     volumes:
