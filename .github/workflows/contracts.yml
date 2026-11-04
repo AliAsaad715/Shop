@@ -1,24 +1,19 @@
 # Guards the contract the app and the warehouse share: buf lint, buf breaking against main,
-# and that the committed Go code in warehouse/gen matches the proto
+# and that the Go code in the warehouse submodule (warehouse/gen) matches the proto
 name: Contracts
 
 on:
   pull_request:
     paths:
       - contracts/**
-      - warehouse/buf.gen.yaml
-      - warehouse/gen/**
-      - warehouse/go.mod
-      - warehouse/go.sum
+      # The submodule pointer: Shop moved to another warehouse commit
+      - warehouse
       - .github/workflows/contracts.yml
   push:
     branches: [main]
     paths:
       - contracts/**
-      - warehouse/buf.gen.yaml
-      - warehouse/gen/**
-      - warehouse/go.mod
-      - warehouse/go.sum
+      - warehouse
       - .github/workflows/contracts.yml
 
 permissions:
@@ -32,6 +27,8 @@ jobs:
         with:
           # buf breaking reads the base commit from the local history
           fetch-depth: 0
+          # The warehouse is the Inventory repository as a submodule, at the commit Shop pins
+          submodules: true
 
       - uses: bufbuild/buf-action@v1
         with:
@@ -63,7 +60,7 @@ jobs:
           buf generate
           if [ -n "$(git status --porcelain -- gen)" ]; then
             git status --short -- gen
-            echo "::error::warehouse/gen doesn't match the proto. Run 'buf generate' in warehouse/ and commit the result."
+            echo "::error::warehouse/gen doesn't match the proto. Run 'buf generate' in warehouse/, commit and push it in the Inventory repository, then commit the new submodule pointer in Shop."
             exit 1
           fi
           go build ./...

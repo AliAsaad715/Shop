@@ -3,6 +3,3 @@
 
 # Shell scripts run inside Linux containers, where CRLF line endings break them
 *.sh text eol=lf
-
-# Written by buf generate; GitHub collapses these in pull request diffs
-warehouse/gen/** linguist-generated=true

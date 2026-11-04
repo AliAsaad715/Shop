@@ -9,6 +9,7 @@ using Shop.Modules.Products.Creation;
 using Shop.Modules.Products.Data;
 using Shop.Modules.Products.Images;
 using Shop.Modules.Products.Inventory;
+using Shop.Modules.Products.Seeding;
 using Shop.SharedKernel.Persistence;
 
 namespace Shop.Modules.Products;
@@ -23,6 +24,10 @@ public static class ProductsModule
         services.AddScoped<IImageStorage, LocalImageStorage>();
         services.AddOptions<ImageStorageOptions>().BindConfiguration("Images")
             .Validate(options => !string.IsNullOrWhiteSpace(options.RootPath), "Images:RootPath is required.");
+
+        // The demo catalog that matches the warehouse seed; off unless DemoSeed:Enabled is true
+        services.AddOptions<DemoSeedOptions>().BindConfiguration(DemoSeedOptions.Section);
+        services.AddHostedService<DemoProductSeeder>();
 
         // One scan registers every validator in the module (creation and catalog alike)
         services.AddValidatorsFromAssemblyContaining<CreateProductRequestValidator>(includeInternalTypes: true);

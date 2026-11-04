@@ -1,0 +1,3 @@
+[submodule "warehouse"]
+	path = warehouse
+	url = https://github.com/AliAsaad715/Inventory.git

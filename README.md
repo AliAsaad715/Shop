@@ -2,6 +2,11 @@
 
 ## Run locally
 
+The Go warehouse is its own repository, [AliAsaad715/Inventory](https://github.com/AliAsaad715/Inventory),
+included here as the `warehouse` submodule. Clone with
+`git clone --recurse-submodules https://github.com/AliAsaad715/Shop.git`; in an existing clone, run
+`git submodule update --init`.
+
 Copy `.env.example` to `.env`, configure the admin account, and set `JWT_SIGNING_KEY`
 to the base64 encoding of at least 32 random bytes. Generate it in PowerShell 7:
 
@@ -64,8 +69,9 @@ Changes must be additive: new fields take new numbers, and existing numbers are 
 
 - **C#**: Grpc.Tools compiles the client into `Shop.Modules.Products` on every build, as
   internal types in the `Inventory.V1` namespace, so no other step is needed.
-- **Go**: `warehouse/gen` is written by `buf generate` and committed. After changing the proto,
-  regenerate it with [buf](https://buf.build/docs/cli/installation/) and Go 1.27, then commit the result:
+- **Go**: `warehouse/gen` is written by `buf generate` and committed in the Inventory repository. After
+  changing the proto, regenerate it with [buf](https://buf.build/docs/cli/installation/) and Go 1.27, commit
+  and push it in `warehouse/`, then commit the new submodule pointer in Shop with `git add warehouse`:
 
 ```sh
 cd warehouse
@@ -80,6 +86,66 @@ repository root:
 buf lint contracts
 buf breaking contracts --against '.git#branch=main,subdir=contracts'
 ```
+
+## Warehouse service (task R2-02)
+
+[`warehouse/`](warehouse), the Inventory submodule, is the Go service that owns stock. It serves the
+contract over gRPC on port 50051 and keeps a pgx connection pool to its own PostgreSQL database. Until
+R2-04, `GetStock`, `Reserve` and `Release` answer `UNIMPLEMENTED`; compose starts it with its database
+in R2-09.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `INVENTORY_DATABASE_URL` | required | The warehouse database, as a `postgres://` URL or a `key=value` string; pool settings such as `pool_max_conns` go here too |
+| `INVENTORY_GRPC_ADDR` | `:50051` | Where the gRPC server listens |
+| `INVENTORY_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`; logs are JSON lines on stdout |
+
+- **Health**: the standard `grpc.health.v1.Health` service answers `SERVING` only while the database
+  answers a ping, checked every 5 s, both for the server (`""`) and for `inventory.v1.InventoryService`.
+  The image's `HEALTHCHECK` runs `/warehouse healthcheck`, since the distroless image has no shell or curl.
+- **Stopping**: on SIGTERM, health turns `NOT_SERVING`, new calls are refused, and calls in flight get
+  5 s to finish before they are cancelled, well before Docker's SIGKILL at 10 s.
+- **Logs**: one line per call with the method, gRPC code, duration and the call's `order_id`, so an
+  order can be followed from the app's logs. Health checks log only at `debug`.
+
+Test it and build the image with Go 1.27 and Docker:
+
+```sh
+cd warehouse
+go vet ./...
+go test -race ./...
+docker build -t shop-warehouse .
+```
+
+## Warehouse database and demo seed (task R2-03)
+
+[`warehouse/db/`](warehouse/db) holds the warehouse's schema and seed as plain SQL. The `inventory-db`
+container runs them in name order the first time it starts on an empty volume; compose mounts the folder
+at `/docker-entrypoint-initdb.d` in R2-09. Each file is one transaction. A volume that already holds a
+database skips them, so remove the volume to start again. Until R2-09, try them with:
+
+```sh
+docker run --rm -e POSTGRES_DB=inventory -e POSTGRES_USER=inventory -e POSTGRES_PASSWORD=inventory \
+  -v "$PWD/warehouse/db":/docker-entrypoint-initdb.d:ro postgres:18
+```
+
+The six demo products have fixed IDs in both databases, so orders can name them in the app and
+reserve them in the warehouse:
+
+| ID ends in | Product | Warehouse stock |
+| --- | --- | --- |
+| `…0201` | Wireless Headphones | 25 |
+| `…0202` | Cotton T-Shirt | 100 |
+| `…0203` | Ceramic Mug | 40 |
+| `…0204` | Field Guide to Distributed Systems | 15 |
+| `…0205` | Limited Edition Desk Lamp (product X, for the race demo) | 1 |
+| `…0206` | Trail Running Shoes (sold out) | 0 |
+
+All IDs start `019a2180-0000-7000-8000-000000000`. The app adds them when `DemoSeed__Enabled` is `true`,
+which compose sets by default (`DEMO_SEED_ENABLED` in `.env`). Production and the tests leave it off.
+Existing products are never changed on restart. `DemoSeedTests` fails if `002_seed.sql` and the app's
+list of demo products drift apart. Products created later through the API have no stock row, so the
+warehouse counts them as 0 available.
 
 ## Warehouse client (task R2-06)
 
