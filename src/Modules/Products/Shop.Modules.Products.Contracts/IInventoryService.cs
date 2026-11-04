@@ -1,19 +1,21 @@
 namespace Shop.Modules.Products.Contracts;
 
 /// <summary>
-/// The inventory boundary used by other modules. Each operation maps to a future warehouse RPC.
+/// The inventory boundary used by other modules, answered by the warehouse service. When the
+/// warehouse can't answer, every method throws an <see cref="InventoryException"/>: an
+/// <see cref="InventoryUnavailableException"/> when it is down or unreachable, and an
+/// <see cref="InventoryTimeoutException"/> when it misses the call's deadline.
 /// </summary>
 public interface IInventoryService
 {
     /// <summary>
-    /// Returns available units. Requirement 1 returns <see cref="int.MaxValue"/> to represent
-    /// unlimited availability until the warehouse service supplies real stock counts.
+    /// Returns the units available. A product the warehouse doesn't know has 0.
     /// </summary>
     Task<int> GetAvailableAsync(Guid productId, CancellationToken ct);
 
     /// <summary>
-    /// Reserves all lines or none. Repeating a reservation for the same order must not consume stock twice.
-    /// Requirement 1 always returns a successful reservation without changing stock.
+    /// Reserves all lines or none. Repeating a reservation for the same order doesn't consume stock twice,
+    /// and a reservation for an order that was already released is refused.
     /// </summary>
     Task<ReserveResult> ReserveAsync(Guid orderId, IReadOnlyList<StockLine> lines, CancellationToken ct);
 
