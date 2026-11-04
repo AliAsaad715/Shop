@@ -18,7 +18,7 @@ public static class ProductsModule
     public static IServiceCollection AddProductsModule(this IServiceCollection services)
     {
         services.AddModuleDbContext<ProductsDbContext>(ProductsDbContext.Schema);
-        services.AddScoped<IInventoryService, PlaceholderInventoryService>();
+        services.AddInventoryClient();
         services.AddScoped<IProductCatalog, ProductCatalog>();
         services.AddScoped<IImageStorage, LocalImageStorage>();
         services.AddOptions<ImageStorageOptions>().BindConfiguration("Images")

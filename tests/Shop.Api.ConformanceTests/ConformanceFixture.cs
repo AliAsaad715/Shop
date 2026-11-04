@@ -71,6 +71,8 @@ internal sealed class ConformanceApiFactory(string connectionString) : WebApplic
             ["Admin:Password"] = string.Empty,
             ["AllowedHosts"] = "*",
             ["Jwt:SigningKey"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)),
+            // Required at startup; no conformance test reaches the warehouse
+            ["Inventory:Address"] = "http://localhost:50051",
         }));
         builder.ConfigureTestServices(services =>
         {
