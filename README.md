@@ -91,8 +91,8 @@ buf breaking contracts --against '.git#branch=main,subdir=contracts'
 
 [`warehouse/`](warehouse), the Inventory submodule, is the Go service that owns stock. It serves the
 contract over gRPC on port 50051 and keeps a pgx connection pool to its own PostgreSQL database. Until
-R2-04, `GetStock`, `Reserve` and `Release` answer `UNIMPLEMENTED`; compose starts it with its database
-in R2-09.
+R2-04, `GetStock`, `Reserve` and `Release` answer `UNIMPLEMENTED`. Compose runs it as the `inventory`
+service (task R2-09).
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -119,15 +119,10 @@ docker build -t shop-warehouse .
 
 ## Warehouse database and demo seed (task R2-03)
 
-[`warehouse/db/`](warehouse/db) holds the warehouse's schema and seed as plain SQL. The `inventory-db`
-container runs them in name order the first time it starts on an empty volume; compose mounts the folder
-at `/docker-entrypoint-initdb.d` in R2-09. Each file is one transaction. A volume that already holds a
-database skips them, so remove the volume to start again. Until R2-09, try them with:
-
-```sh
-docker run --rm -e POSTGRES_DB=inventory -e POSTGRES_USER=inventory -e POSTGRES_PASSWORD=inventory \
-  -v "$PWD/warehouse/db":/docker-entrypoint-initdb.d:ro postgres:18
-```
+[`warehouse/db/`](warehouse/db) holds the warehouse's schema and seed as plain SQL. Compose mounts the
+folder at `/docker-entrypoint-initdb.d`, so the `inventory-db` container runs them in name order the first
+time it starts on an empty volume. Each file is one transaction. A volume that already holds a database
+skips them; the R2-09 section shows how to start it again.
 
 The six demo products have fixed IDs in both databases, so orders can name them in the app and
 reserve them in the warehouse:
@@ -164,7 +159,8 @@ covers the whole call, and `UNAVAILABLE` is retried inside it, up to 3 attempts 
 reach callers as `InventoryUnavailableException` (warehouse down or unreachable), `InventoryTimeoutException`
 (deadline passed, so a reservation may still have landed) or `InventoryException` (anything else).
 
-Until the warehouse joins compose in task R2-09, placing an order through compose answers 503.
+Until R2-04 implements the warehouse's calls, it answers them `UNIMPLEMENTED`: orders placed through compose
+fail with 500, their releases wait in the queue, and product pages show stock as `unknown`.
 
 ## Warehouse failures (task R2-07)
 
@@ -197,6 +193,34 @@ reports `Degraded`, still with status 200, so browsing keeps working.
 | `unknown` | `null` | The warehouse is down or missed the 500 ms deadline; the product still loads with 200 |
 
 The product list leaves stock out, so a page of products never makes one warehouse call per product.
+
+## Compose services (task R2-09)
+
+`docker compose up` runs four containers; add `--wait` to return once every health check passes.
+
+| Service | Networks | From the host | Starts after |
+| --- | --- | --- | --- |
+| `api` | `default` | `localhost:8080` | `postgres` healthy, and `inventory` started but not awaited, since the app runs Degraded without it |
+| `postgres` | `default` | `127.0.0.1:5433` | — |
+| `inventory` | `default`, `inventory-data` | not published | `inventory-db` healthy |
+| `inventory-db` | `inventory-data` (internal) | not published | — |
+
+The app reaches the warehouse only over gRPC at `inventory:50051`. `inventory-db` is on a network the app
+isn't on, so the app has no route to the warehouse's data. Its settings come from `.env`
+(`INVENTORY_DB_NAME`, `INVENTORY_DB_USER`, `INVENTORY_DB_PASSWORD`), and the warehouse receives the password
+as `PGPASSWORD`.
+
+```sh
+docker compose stop inventory    # warehouse down: orders answer 503, product stock is unknown
+docker compose start inventory
+docker compose exec inventory-db psql -U inventory -d inventory -c 'select * from stock_levels'
+```
+
+To reseed the warehouse, remove only its volume; the app's database is untouched:
+
+```sh
+docker compose rm -sf inventory-db && docker volume rm shop_inventory-db-data && docker compose up -d
+```
 
 ## Verify
 

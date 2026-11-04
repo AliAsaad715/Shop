@@ -1,4 +1,5 @@
-# Copy .env.example to .env and set JWT_SIGNING_KEY before the first run.
+# Copy .env.example to .env and set JWT_SIGNING_KEY before the first run. The inventory service
+# builds from the warehouse submodule, so clone with --recurse-submodules.
 # Run `docker compose up`; add --build after code changes.
 name: shop
 
@@ -29,6 +30,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      # Started first but not awaited: the app runs Degraded without the warehouse, so a warehouse
+      # that never gets healthy must not keep the shop down
+      inventory:
+        condition: service_started
 
   postgres:
     image: postgres:18
@@ -53,6 +58,52 @@ services:
       start_period: 30s
       start_interval: 1s
 
+  # The Go warehouse (task R2-02). gRPC on 50051 inside the compose network only, never published to
+  # the host; the image's own HEALTHCHECK asks the warehouse's gRPC health service.
+  inventory:
+    build:
+      context: warehouse
+    environment:
+      # The password comes in through PGPASSWORD, which pgx reads, so it needs no quoting or URL encoding
+      INVENTORY_DATABASE_URL: host=inventory-db port=5432 dbname=${INVENTORY_DB_NAME:-inventory} user=${INVENTORY_DB_USER:-inventory} sslmode=disable
+      PGPASSWORD: ${INVENTORY_DB_PASSWORD:-inventory}
+      INVENTORY_LOG_LEVEL: ${INVENTORY_LOG_LEVEL:-info}
+    expose:
+      - "50051"
+    networks:
+      - default
+      - inventory-data
+    depends_on:
+      inventory-db:
+        condition: service_healthy
+
+  # The warehouse's own database (task R2-03), on a network the app isn't on, so the app has no route to it
+  inventory-db:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: ${INVENTORY_DB_NAME:-inventory}
+      POSTGRES_USER: ${INVENTORY_DB_USER:-inventory}
+      POSTGRES_PASSWORD: ${INVENTORY_DB_PASSWORD:-inventory}
+    volumes:
+      - inventory-db-data:/var/lib/postgresql
+      # Schema and seed, run in name order the first time the volume is empty
+      - ./warehouse/db:/docker-entrypoint-initdb.d:ro
+    networks:
+      - inventory-data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+      start_interval: 1s
+
+networks:
+  # Only the warehouse and its database; internal, so nothing on it reaches outside Docker
+  inventory-data:
+    internal: true
+
 volumes:
   postgres-data:
   images:
+  inventory-db-data:
