@@ -68,6 +68,8 @@ services:
       INVENTORY_DATABASE_URL: host=inventory-db port=5432 dbname=${INVENTORY_DB_NAME:-inventory} user=${INVENTORY_DB_USER:-inventory} sslmode=disable
       PGPASSWORD: ${INVENTORY_DB_PASSWORD:-inventory}
       INVENTORY_LOG_LEVEL: ${INVENTORY_LOG_LEVEL:-info}
+      # Demos only: holds every inventory call this long, to show the app's deadlines (tests/proof)
+      INVENTORY_DELAY_MS: ${INVENTORY_DELAY_MS:-0}
     expose:
       - "50051"
     networks:

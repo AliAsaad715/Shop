@@ -90,15 +90,15 @@ buf breaking contracts --against '.git#branch=main,subdir=contracts'
 ## Warehouse service (task R2-02)
 
 [`warehouse/`](warehouse), the Inventory submodule, is the Go service that owns stock. It serves the
-contract over gRPC on port 50051 and keeps a pgx connection pool to its own PostgreSQL database. Until
-R2-04, `GetStock`, `Reserve` and `Release` answer `UNIMPLEMENTED`. Compose runs it as the `inventory`
-service (task R2-09).
+contract over gRPC on port 50051 and keeps a pgx connection pool to its own PostgreSQL database; R2-04
+implements `GetStock`, `Reserve` and `Release` on it. Compose runs it as the `inventory` service (task R2-09).
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `INVENTORY_DATABASE_URL` | required | The warehouse database, as a `postgres://` URL or a `key=value` string; pool settings such as `pool_max_conns` go here too |
 | `INVENTORY_GRPC_ADDR` | `:50051` | Where the gRPC server listens |
 | `INVENTORY_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`; logs are JSON lines on stdout |
+| `INVENTORY_DELAY_MS` | `0` | Demos only: holds each inventory call this many milliseconds before handling it; health checks never wait |
 
 - **Health**: the standard `grpc.health.v1.Health` service answers `SERVING` only while the database
   answers a ping, checked every 5 s, both for the server (`""`) and for `inventory.v1.InventoryService`.
@@ -108,7 +108,8 @@ service (task R2-09).
 - **Logs**: one line per call with the method, gRPC code, duration and the call's `order_id`, so an
   order can be followed from the app's logs. Health checks log only at `debug`.
 
-Test it and build the image with Go 1.27 and Docker:
+Test it and build the image with Go 1.27 and Docker. `TestStorePostgres` (R2-05) starts a disposable PostgreSQL
+with Testcontainers, so Docker must be running:
 
 ```sh
 cd warehouse
@@ -158,9 +159,6 @@ The app doesn't start without a valid address, or with a timeout outside 0 to 30
 covers the whole call, and `UNAVAILABLE` is retried inside it, up to 3 attempts with backoff. Failures
 reach callers as `InventoryUnavailableException` (warehouse down or unreachable), `InventoryTimeoutException`
 (deadline passed, so a reservation may still have landed) or `InventoryException` (anything else).
-
-Until R2-04 implements the warehouse's calls, it answers them `UNIMPLEMENTED`: orders placed through compose
-fail with 500, their releases wait in the queue, and product pages show stock as `unknown`.
 
 ## Warehouse failures (task R2-07)
 
@@ -221,6 +219,12 @@ To reseed the warehouse, remove only its volume; the app's database is untouched
 ```sh
 docker compose rm -sf inventory-db && docker volume rm shop_inventory-db-data && docker compose up -d
 ```
+
+## Proof kit (task R2-10)
+
+[`tests/proof/README.md`](tests/proof/README.md) walks through the six interview steps: the k6 race for the last
+unit of product X ([`order-race.js`](tests/proof/order-race.js)), the warehouse stopped, the warehouse slow
+with `INVENTORY_DELAY_MS`, recovery, and the test suites.
 
 ## Verify
 
