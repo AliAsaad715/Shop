@@ -17,7 +17,10 @@ internal static class JwtAuthentication
             .Validate(options => !string.IsNullOrWhiteSpace(options.Issuer), "Jwt:Issuer is required.")
             .Validate(options => !string.IsNullOrWhiteSpace(options.Audience), "Jwt:Audience is required.")
             .Validate(options => options.LifetimeMinutes is >= 15 and <= 30, "Jwt:LifetimeMinutes must be between 15 and 30.")
-            .Validate(JwtOptions.HasValidSigningKey, "Set Jwt__SigningKey to a base64-encoded random key of at least 32 bytes.")
+            .Validate(JwtOptions.HasValidSigningKey,
+                "Jwt:SigningKey must be a base64-encoded random key of at least 32 bytes. " +
+                "Local run: dotnet user-secrets set Jwt:SigningKey <key> --project src/Shop.Api. " +
+                "Docker: set JWT_SIGNING_KEY in .env.")
             .ValidateOnStart();
 
         services.TryAddSingleton(TimeProvider.System);

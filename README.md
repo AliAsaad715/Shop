@@ -8,24 +8,27 @@ included here as the `warehouse` submodule. Clone with
 `git submodule update --init`.
 
 Copy `.env.example` to `.env`, configure the admin account, and set `JWT_SIGNING_KEY`
-to the base64 encoding of at least 32 random bytes. Generate it in PowerShell 7:
+to the base64 encoding of at least 32 random bytes. Generate one in PowerShell (5.1 or 7):
 
 ```powershell
-[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)
 ```
 
 Run `docker compose up --build`. The local HTTP demo is available at
 `http://localhost:8080/docs`. Keep `.env`, signing keys and certificates out of Git.
 
-For local HTTPS, start PostgreSQL with `docker compose up -d postgres`, configure a trusted
-.NET development certificate with `dotnet dev-certs https --trust`, and run:
+To run the API from Visual Studio or `dotnet run`, start PostgreSQL with
+`docker compose up -d postgres` and store the signing key once in .NET user secrets. They live
+in your user profile, outside the repository, and load automatically in Development:
 
 ```powershell
-$env:Jwt__SigningKey = '<your base64 signing key>'
-dotnet run --project src/Shop.Api --launch-profile https
+dotnet user-secrets set Jwt:SigningKey '<your base64 signing key>' --project src/Shop.Api
+dotnet run --project src/Shop.Api --launch-profile http
 ```
 
-Open `https://localhost:7080/docs`; HTTP on port 5080 redirects to that HTTPS listener.
+Open `http://localhost:5080/docs`. For local HTTPS, configure a trusted .NET development
+certificate with `dotnet dev-certs https --trust` and use `--launch-profile https`; open
+`https://localhost:7080/docs`, and HTTP on port 5080 redirects to that HTTPS listener.
 The `http` launch profile and default Compose setup support HTTP-only local demos.
 
 ## Browser security (task 13)
