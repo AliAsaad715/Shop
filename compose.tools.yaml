@@ -1,0 +1,18 @@
+# Local tools only: publishes the warehouse's gRPC port (Postman) and its database (DBeaver) on this
+# machine's loopback. inventory-db joins one extra network the app is not on, so the app still has no
+# route to it. Start with: docker compose -f compose.yaml -f compose.tools.yaml up -d
+services:
+  inventory:
+    ports:
+      - "127.0.0.1:${INVENTORY_GRPC_PORT:-50051}:50051"
+
+  inventory-db:
+    ports:
+      - "127.0.0.1:${INVENTORY_DB_PORT:-5434}:5432"
+    networks:
+      - inventory-data
+      # inventory-data is internal, and Docker can't publish a port on an internal network alone
+      - inventory-tools
+
+networks:
+  inventory-tools: {}

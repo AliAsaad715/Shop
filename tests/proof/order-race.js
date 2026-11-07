@@ -11,7 +11,7 @@ import { check, sleep } from 'k6';
 import { Counter } from 'k6/metrics';
 
 const API = __ENV.API_URL || 'http://localhost:8080';
-const PRODUCT_X = __ENV.PRODUCT_ID || '019a2180-0000-7000-8000-000000000205';
+const PRODUCT_X = __ENV.PRODUCT_ID || '019a2180-0000-7000-8000-000000000206';
 const ORDERS = 20;
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
