@@ -226,6 +226,17 @@ docker compose rm -sf inventory-db && docker volume rm shop_inventory-db-data &&
 unit of product X ([`order-race.js`](tests/proof/order-race.js)), the warehouse stopped, the warehouse slow
 with `INVENTORY_DELAY_MS`, recovery, and the test suites.
 
+## Load test (task R3-02)
+
+[`perf/load.js`](perf/load.js) is the k6 script for Requirement 3's measurements: an open model at a fixed rate,
+200 requests per second by default, mostly catalog browsing with some "my orders" and a little ordering. Each run
+prints p50, p95 and p99 per endpoint and saves them to `perf/results/`. [`perf/README.md`](perf/README.md) has the
+settings, the traffic mix and how to read a run.
+
+```sh
+k6 run -e LABEL=baseline -e COMMIT=$(git describe --tags --always --dirty) perf/load.js
+```
+
 ## Verify
 
 ```sh
