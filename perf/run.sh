@@ -6,7 +6,8 @@
 #   perf/run.sh <label> <rate>        e.g. perf/run.sh baseline 200
 #
 # Results go to perf/results/<label>/. RUNS sets how many runs (3); WARMUP, DURATION, CUSTOMER_EMAILS,
-# CUSTOMER_PASSWORD and CUSTOMERS pass through to perf/load.js. Needs Docker and jq.
+# CUSTOMER_PASSWORD and CUSTOMERS pass through to perf/load.js, with five seeded customers unless set. Needs Docker
+# and jq.
 set -euo pipefail
 set -m # each background job gets its own process group, so stopping a sampler stops everything it started
 cd "$(dirname "$0")/.."
@@ -16,6 +17,9 @@ K6_CONTAINER=shop-perf-k6
 REDIS_SERVICE=${REDIS_SERVICE:-redis}
 RUNS=${RUNS:-3}
 SAMPLE_SECONDS=2
+# The seeded customers every step uses (perf/seed.sql): the two with the most orders, and three typical ones
+CUSTOMER_EMAILS=${CUSTOMER_EMAILS:-customer1@shop.test,customer2@shop.test,customer100@shop.test,customer5000@shop.test,customer40000@shop.test}
+CUSTOMER_PASSWORD=${CUSTOMER_PASSWORD:-Shopper123!}
 
 if [[ $# -ne 2 ]]; then
   echo "usage: perf/run.sh <label> <rate>   e.g. perf/run.sh baseline 200" >&2

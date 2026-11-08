@@ -226,6 +226,20 @@ docker compose rm -sf inventory-db && docker volume rm shop_inventory-db-data &&
 unit of product X ([`order-race.js`](tests/proof/order-race.js)), the warehouse stopped, the warehouse slow
 with `INVENTORY_DELAY_MS`, recovery, and the test suites.
 
+## Requirement 3 dataset (task R3-01)
+
+`perf/seed.sh` loads the data every Requirement 3 measurement runs on: 50,000 customers, 5,000 products in 20
+categories, 500,000 orders and about 1.5 million order lines, skewed so a few customers and products take most of the
+orders. `setseed()` makes it the same every time, and the warehouse stocks every product with 1,000,000 units, the
+demo products included, which replaces the R2 proof's sold-out stock. Seeded customers are `customer1@shop.test` to
+`customer50000@shop.test`, all with the password `Shopper123!`. [`perf/README.md`](perf/README.md#the-dataset-seedsh)
+has the details.
+
+```sh
+perf/seed.sh                    # once, on a fresh stack: about 100 s
+perf/snapshot.sh save
+```
+
 ## Load test (task R3-02)
 
 [`perf/load.js`](perf/load.js) is the k6 script for Requirement 3's measurements: an open model at a fixed rate,
@@ -248,9 +262,17 @@ explains each one.
 
 ```sh
 perf/snapshot.sh save           # once, right after seeding
-perf/run.sh baseline 200        # on the tagged commit of each step
+perf/run.sh baseline 1000       # on the tagged commit of each step
 perf/compare.sh
 ```
+
+## Baseline (task R3-03)
+
+At 1,000 requests per second on the seeded data, the app as it is answers with a p50 of 2.9 ms, a p95 of 9.2 ms and a
+p99 of 21.0 ms, the median of three runs on the `r3-baseline` tag; at 1,200 it collapses. Every later step runs at the
+same 1,000 req/s. [`perf/results/baseline/README.md`](perf/results/baseline/README.md) has the runs, how the rate was
+chosen, and what the system did: the api used 2.5 cores to Postgres's 1, much of it likely spent logging every SQL
+command.
 
 ## Verify
 

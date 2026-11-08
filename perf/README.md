@@ -1,9 +1,10 @@
 # Requirement 3 performance tests
 
-Four tools measure each step of Requirement 3 the same way, so the before/after numbers compare:
+These tools measure each step of Requirement 3 the same way, on the same data, so the before/after numbers compare:
 
 | File | Task | What it does |
 | --- | --- | --- |
+| [`seed.sh`](seed.sh), [`seed.sql`](seed.sql) | R3-01 | Loads the dataset: 50,000 customers, 5,000 products, 500,000 orders, skewed and the same every time |
 | [`load.js`](load.js) | R3-02 | The k6 load test: a fixed rate of mixed traffic, with p50, p95 and p99 per endpoint |
 | [`snapshot.sh`](snapshot.sh) | R3-02b | Saves the seeded databases once, and restores them before every step |
 | [`run.sh`](run.sh) | R3-02b | Runs a step: restores the snapshot, runs `load.js` three times, and records what the system did |
@@ -13,21 +14,44 @@ They need Docker, bash and jq (`sudo apt install jq`, or `brew install jq`); `ru
 
 ## A step from start to finish
 
-From the repository root, with the stack up (`docker compose up --build --wait`) and the R3-01 seed loaded:
+From the repository root, with the stack up (`docker compose up --build --wait`):
 
 ```sh
+perf/seed.sh                 # once, on a fresh stack: about 100 s
 perf/snapshot.sh save        # once, right after seeding
 
-git tag r3-baseline
-perf/run.sh baseline 200     # three runs at 200 req/s, about 12 minutes
+perf/run.sh baseline 1000    # done: see results/baseline/README.md
 # change one thing, commit it, then
 git tag r3-after-db
-perf/run.sh after-db 200
+perf/run.sh after-db 1000    # three runs, about 12 minutes
 perf/compare.sh              # writes perf/results/comparison.md
 ```
 
 Copy each step's overall row from `comparison.md` into the plan's results table, and commit `perf/results/`: the
-plan uses the files as exhibits. Keep the rate the same for every step.
+plan uses the files as exhibits. Every step runs at 1,000 req/s, the rate the baseline barely handled
+([how it was chosen](results/baseline/README.md#the-rate)).
+
+## The dataset: seed.sh
+
+`perf/seed.sh` loads `perf/seed.sql` into the app's database and stocks the warehouse, in about 100 seconds. The data
+is about 900 MB:
+
+| Rows | Count | Skew |
+| --- | --- | --- |
+| Customers | 50,000 | `customer1@shop.test` has about 2,300 orders, `customer100` about 90, the median customer 7 |
+| Categories | 20 | The 4 every database has, and 16 more, from about 680 products down to about 170 |
+| Products | 5,000 | Product 1 is on about 21,000 order lines, product 100 on about 1,000, product 5,000 on about 150 |
+| Orders | 500,000 | Over the two years before 2026-11-01; one in twenty cancelled, the rest moved on by age |
+| Order lines | about 1,500,000 | One to five per order, mostly one unit each |
+
+- `setseed()` makes every run produce the same rows, checked by seeding twice and comparing checksums.
+- Product IDs are `md5('product-' || n)`, the IDs the warehouse stocks (`tests/proof/app-seed.sql`). The six demo
+  products get the same 1,000,000 units, so the load test never fails on stock; that undoes the R2 proof's sold-out
+  products, which [`tests/proof/README.md`](../tests/proof/README.md) shows how to reseed.
+- Every seeded customer signs in with `Shopper123!`: one hash for all, made by the app's own `PasswordHasher`.
+- Orders, their lines and their status history follow the app's own rules: totals match the lines, and every status
+  change is one the app allows.
+- It refuses to run on a database that's already seeded.
 
 ## The snapshot: snapshot.sh
 
@@ -56,10 +80,13 @@ the 30 s warm-up is for.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `RUNS` | `3` | How many runs |
-| `WARMUP`, `DURATION`, `CUSTOMER_EMAILS`, `CUSTOMER_PASSWORD`, `CUSTOMERS` | as in `load.js` | Passed on to `load.js` |
+| `CUSTOMER_EMAILS`, `CUSTOMER_PASSWORD` | five seeded customers, `Shopper123!` | Who reads "my orders" and places orders: `customer1` and `customer2` (the heaviest), `customer100`, `customer5000` and `customer40000` |
+| `WARMUP`, `DURATION`, `CUSTOMERS` | as in `load.js` | Passed on to `load.js` |
 
 While each run is measured, `run.sh` samples every container's CPU and the app's database connections every two
-seconds. It saves what it saw beside the k6 result, in `perf/results/<label>/<label>-<start time>.system.json`:
+seconds. The database sampler keeps one session open for the whole run, so it still sees the database when the app's
+pool has taken every connection Postgres allows. It saves what it saw beside the k6 result, in
+`perf/results/<label>/<label>-<start time>.system.json`:
 
 | Field | Meaning |
 | --- | --- |
@@ -103,7 +130,7 @@ A run takes about four minutes with the defaults: setup, a 30 s warm-up, then 3 
 | --- | --- | --- |
 | `API_URL` | `http://localhost:8080` | The API under test |
 | `RATE` | `200` | Requests per second, all endpoints together. Pick one the baseline barely handles, then keep it for every later run |
-| `WARMUP` | `30s` | The same traffic first, left out of every number, since the JIT, connection pools and Postgres's cache start cold. `0` turns it off |
+| `WARMUP` | `30s` | Climbs from a tenth of the rate to all of it, left out of every number, since the JIT, connection pools and Postgres's cache start cold. `0` turns it off |
 | `DURATION` | `3m` | The measured part |
 | `LABEL` | `run` | Starts the results file's name: the step, such as `baseline` or `after-redis` |
 | `COMMIT` | `unknown` | The commit under test, recorded in the results |
@@ -134,8 +161,8 @@ A run takes about four minutes with the defaults: setup, a 30 s warm-up, then 3 
 ### Customers
 
 "My orders" only measures something for customers with real order histories, so list some of the seed's heavy
-customers and some typical ones in `CUSTOMER_EMAILS`. Without it, setup registers fresh customers whose order lists
-start empty. That's fine for trying the script, and the results say so.
+customers and some typical ones in `CUSTOMER_EMAILS`; `run.sh` does that for you. Without it, setup registers fresh
+customers whose order lists start empty. That's fine for trying the script, and the results say so.
 
 The API allows 5 logins a minute from one address, so setup waits a minute for every five customers past the first
 five. Set `LOGIN_RATE_LIMIT_PERMIT_LIMIT=1000` in `.env` and run `docker compose up -d api` to skip the wait. Tokens

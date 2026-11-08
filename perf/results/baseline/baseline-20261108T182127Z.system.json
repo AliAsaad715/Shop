@@ -1,0 +1,52 @@
+{
+  "label": "baseline",
+  "run": 1,
+  "result": "baseline-20261108T182127Z.json",
+  "commit": "r3-baseline",
+  "snapshot": "saved 2026-11-08T17:59:13Z at r3-baseline",
+  "window": {
+    "measuredFrom": "2026-11-08T18:21:58.744Z",
+    "measuredTo": "2026-11-08T18:24:58.744Z"
+  },
+  "sampleSeconds": 2,
+  "cpu": {
+    "cores": 8,
+    "containers": {
+      "api": {
+        "avgPercent": 257.5,
+        "maxPercent": 268.9
+      },
+      "inventory": {
+        "avgPercent": 29.3,
+        "maxPercent": 34.5
+      },
+      "inventory-db": {
+        "avgPercent": 11.2,
+        "maxPercent": 22.7
+      },
+      "k6": {
+        "avgPercent": 52.9,
+        "maxPercent": 98.6
+      },
+      "postgres": {
+        "avgPercent": 99.3,
+        "maxPercent": 109.5
+      }
+    }
+  },
+  "database": {
+    "maxConnections": 25,
+    "avgActive": 1.2,
+    "maxActive": 3,
+    "maxWaiting": 2,
+    "waitEvents": {
+      "Client:ClientRead": 16
+    }
+  },
+  "topQueries": null,
+  "redis": null,
+  "notes": [
+    "pg_stat_statements is not enabled (task R3-04), so there are no top queries",
+    "no redis service (task R3-07), so there are no cache hits"
+  ]
+}
