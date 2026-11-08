@@ -9,6 +9,7 @@ These tools measure each step of Requirement 3 the same way, on the same data, s
 | [`snapshot.sh`](snapshot.sh) | R3-02b | Saves the seeded databases once, and restores them before every step |
 | [`run.sh`](run.sh) | R3-02b | Runs a step: restores the snapshot, runs `load.js` three times, and records what the system did |
 | [`compare.sh`](compare.sh) | R3-02b | Builds [`results/comparison.md`](results), the before/after report with a noise check |
+| [`top-queries.sh`](top-queries.sh) | R3-04 | Lists the queries with the most database time, from `pg_stat_statements` |
 
 They need Docker, bash and jq (`sudo apt install jq`, or `brew install jq`); `run.sh` runs k6 from its Docker image.
 
@@ -92,12 +93,28 @@ pool has taken every connection Postgres allows. It saves what it saw beside the
 | --- | --- |
 | `cpu.containers.<service>` | `avgPercent` and `maxPercent` of one core, during the measured part; `cpu.cores` is how many cores Docker has |
 | `database` | `maxConnections`, `avgActive`, `maxActive` and `maxWaiting` connections to the app's database, and `waitEvents`: how often each wait was seen |
-| `topQueries` | The ten queries with the most total time, from `pg_stat_statements` (task R3-04), counted over the whole run |
+| `topQueries` | The ten queries with the most total time, as `perf/top-queries.sh json` gives them: `calls`, `totalMs`, `meanMs`, `rows`, their `share` of the time and the full `query`, counted over the whole run |
 | `redis` | `hits`, `misses` and `hitRatio` from Redis (task R3-07); hits in HybridCache's in-memory layer never reach Redis |
 | `notes` | What couldn't be recorded yet, such as top queries before R3-04 |
 
 Ctrl+C stops k6, which still saves the run, marked invalid because it was cut short, and `run.sh` starts no more
 runs. It exits with 0 when every run was valid.
+
+## The costliest queries: top-queries.sh
+
+`perf/top-queries.sh` lists the app's statements with the most total time since the counts were last reset, each with
+its share of the time, calls, mean time, rows and full text, ready to paste into `EXPLAIN (ANALYZE, BUFFERS)`:
+
+```sh
+perf/top-queries.sh reset    # start from zero
+# ...run some load, then
+perf/top-queries.sh 5        # the top five
+```
+
+It reads `pg_stat_statements`, which Postgres loads at startup (`compose.yaml`); a Postgres started before that setting
+needs `docker compose up -d postgres` once. The extension lives in the maintenance database `postgres`, so the app's
+schema and the snapshot stay as they are, and the perf tools' own queries are left out of the list. `run.sh` resets
+the counts before every run and saves the top ten in each `.system.json`.
 
 ## The report: compare.sh
 
