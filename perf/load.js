@@ -90,7 +90,10 @@ function thresholds() {
 
 export function setup() {
   const startedAt = new Date().toISOString();
-  return { startedAt, ...readCatalog(), ...signInCustomers(startedAt) };
+  const catalog = readCatalog();
+  const customers = signInCustomers(startedAt);
+  // The scenarios start as soon as setup returns; perf/run.sh reads the measured window from this
+  return { startedAt, loadStartsAt: Date.now(), ...catalog, ...customers };
 }
 
 // Every category and product, read through the API, so the script runs on whatever the seed made. Sorted by
@@ -316,15 +319,23 @@ export function handleSummary(data) {
     };
   }
 
-  const failedThresholds = [];
+  const problems = [];
   for (const [metric, { thresholds: checks }] of Object.entries(data.metrics)) {
     for (const [threshold, { ok }] of Object.entries(checks || {})) {
       if (!ok) {
-        failedThresholds.push(`${metric} ${threshold}`);
+        problems.push(`${metric} ${threshold}`);
       }
     }
   }
 
+  // A run stopped early (Ctrl+C, an abort) can still pass its thresholds, so check it ran its full length
+  const overall = stats(data, '{traffic:measured}', seconds);
+  const expected = sum(Object.values(SCENARIOS).map((scenario) => scenario.rate / 60)) * seconds;
+  if (overall.requests < expected * 0.95) {
+    problems.push(`only ${overall.requests} of about ${Math.round(expected)} requests were measured: the run was cut short`);
+  }
+
+  const measuredFrom = setup.loadStartsAt + warmupMs;
   const result = {
     label: LABEL,
     commit: COMMIT,
@@ -337,7 +348,12 @@ export function handleSummary(data) {
       customers: setup.tokens.length,
       customerSource: setup.customerSource,
     },
-    overall: stats(data, '{traffic:measured}', seconds),
+    // When the measured part ran, so what the system did can be matched to it
+    window: {
+      measuredFrom: new Date(measuredFrom).toISOString(),
+      measuredTo: new Date(measuredFrom + durationMs).toISOString(),
+    },
+    overall,
     endpoints,
     droppedIterations: metricValue(data, 'dropped_iterations', 'count'),
     // More VUs than preallocated means responses slowed enough that k6 had to add some; at the cap it drops
@@ -346,8 +362,8 @@ export function handleSummary(data) {
       preallocated: sum(Object.values(SCENARIOS).map((scenario) => scenario.preAllocatedVUs)),
       cap: sum(Object.values(SCENARIOS).map((scenario) => scenario.maxVUs)),
     },
-    valid: failedThresholds.length === 0,
-    failedThresholds,
+    valid: problems.length === 0,
+    problems,
   };
 
   const file = `${RESULTS_DIR}/${LABEL}-${setup.startedAt.replace(/[-:]|\.\d+/g, '')}.json`;
@@ -397,7 +413,8 @@ function report(result, file) {
   const lines = [
     '',
     `Load test "${result.label}" at ${result.commit}: ${settings.rate} req/s for ${settings.duration} ${warmup}`,
-    `${dataset.products} products in ${dataset.categories} categories, ${dataset.customers} ${dataset.customerSource} customers`,
+    `${dataset.products} products in ${dataset.categories} categories, ${dataset.customers} ${dataset.customerSource} `
+      + `customer${dataset.customers === 1 ? '' : 's'}`,
     '',
     `${'endpoint'.padEnd(17)} ${'route'.padEnd(28)} ${'req/s'.padStart(7)} ${'p50 ms'.padStart(9)} ${'p95 ms'.padStart(9)} `
       + `${'p99 ms'.padStart(9)} ${'max ms'.padStart(9)} ${'errors'.padStart(8)}`,
@@ -406,7 +423,7 @@ function report(result, file) {
     '',
     `Dropped iterations: ${result.droppedIterations}, VUs: ${result.vus.allocated} allocated `
       + `(${result.vus.preallocated} preallocated, cap ${result.vus.cap}), received: ${(overall.bytesReceived / 1e6).toFixed(1)} MB`,
-    result.valid ? 'Valid run: every threshold passed' : `NOT a valid run: ${result.failedThresholds.join('; ')}`,
+    result.valid ? 'Valid run: every threshold passed' : `NOT a valid run: ${result.problems.join('; ')}`,
   ];
   if (dataset.customerSource === 'registered') {
     lines.push('Customers were registered for this run, so "my orders" started empty; '

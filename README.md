@@ -237,6 +237,21 @@ settings, the traffic mix and how to read a run.
 k6 run -e LABEL=baseline -e COMMIT=$(git describe --tags --always --dirty) perf/load.js
 ```
 
+## Before/after tooling (task R3-02b)
+
+Three scripts make every step of Requirement 3 start from the same data and record what the system did.
+`perf/snapshot.sh save` keeps a copy of the seeded databases. `perf/run.sh <label> <rate>` restores it, runs the
+load test three times, and saves each container's CPU, the database connections, the top queries and the Redis hits
+beside each result. `perf/compare.sh` writes `perf/results/comparison.md`: per endpoint, the median of the three
+runs, the change from the baseline, and a noise check. They need Docker and jq; [`perf/README.md`](perf/README.md)
+explains each one.
+
+```sh
+perf/snapshot.sh save           # once, right after seeding
+perf/run.sh baseline 200        # on the tagged commit of each step
+perf/compare.sh
+```
+
 ## Verify
 
 ```sh
