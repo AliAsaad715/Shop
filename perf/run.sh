@@ -8,6 +8,7 @@
 # Results go to perf/results/<label>/. RUNS sets how many runs (3); WARMUP, DURATION, CUSTOMER_EMAILS,
 # CUSTOMER_PASSWORD and CUSTOMERS pass through to perf/load.js. Needs Docker and jq.
 set -euo pipefail
+set -m # each background job gets its own process group, so stopping a sampler stops everything it started
 cd "$(dirname "$0")/.."
 
 K6_IMAGE=grafana/k6:2.3.0
@@ -49,10 +50,17 @@ dir=perf/results/$label
 mkdir -p "$dir"
 tmp=$(mktemp -d)
 samplers=()
+stop_samplers() {
+  local pid
+  for pid in ${samplers[@]+"${samplers[@]}"}; do
+    kill -- "-$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
+  samplers=()
+}
+
 cleanup() {
-  if [[ ${#samplers[@]} -gt 0 ]]; then
-    kill "${samplers[@]}" 2>/dev/null || true
-  fi
+  stop_samplers
   docker rm -f "$K6_CONTAINER" >/dev/null 2>&1 || true
   rm -rf -- "${tmp:?}"
 }
@@ -87,11 +95,14 @@ CONNECTIONS_SQL="SELECT extract(epoch FROM clock_timestamp())::bigint, count(*),
   coalesce(string_agg(wait_event_type || ':' || wait_event, ',') FILTER (WHERE state = 'active' AND wait_event_type IS NOT NULL), '')
   FROM pg_stat_activity WHERE backend_type = 'client backend' AND datname = current_database() AND pid <> pg_backend_pid()"
 
-sample_db() {
-  while :; do
-    app_sql -c "$CONNECTIONS_SQL" 2>/dev/null || true
-    sleep "$SAMPLE_SECONDS"
-  done
+# Starts both samplers in the background. The database one keeps a single session for the whole run, opened before
+# the load starts: once the app's pool takes every connection Postgres allows, a new session couldn't get in, and the
+# samples would stop exactly when they matter most
+start_samplers() {
+  sample_cpu >"$tmp/cpu.txt" 2>/dev/null &
+  samplers=($!)
+  (printf '%s\n\\watch %s\n' "$CONNECTIONS_SQL" "$SAMPLE_SECONDS" | app_sql) >"$tmp/db.txt" 2>/dev/null &
+  samplers+=($!)
 }
 
 # Counts start from zero for each run, where the counters exist: pg_stat_statements comes with task R3-04, Redis
@@ -206,20 +217,14 @@ for ((run = 1; run <= RUNS; run++)); do
   echo "== $label: run $run of $RUNS =="
   reset_counters
   previous=$(newest_result)
-  sample_cpu >"$tmp/cpu.txt" &
-  samplers=($!)
-  sample_db >"$tmp/db.txt" &
-  samplers+=($!)
+  start_samplers
 
   set +e
   docker run --rm "${tty[@]}" --name "$K6_CONTAINER" --network host -u "$(id -u):$(id -g)" \
     -v "$PWD/perf:/shop/perf" -w /shop "$K6_IMAGE" run ${quiet[@]+"${quiet[@]}"} "${k6_env[@]}" perf/load.js
   k6_exit=$?
   set -e
-
-  kill "${samplers[@]}" 2>/dev/null || true
-  wait "${samplers[@]}" 2>/dev/null || true
-  samplers=()
+  stop_samplers
 
   # 0 is a valid run and 99 an invalid one, whose result says why; anything else (setup failed, Ctrl+C) stops here
   if [[ $k6_exit -ne 0 && $k6_exit -ne 99 ]]; then

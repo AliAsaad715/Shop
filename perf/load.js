@@ -56,13 +56,17 @@ export const options = {
 // One scenario per endpoint, each starting its own share of RATE at fixed intervals
 function arrivals(endpoint) {
   const perSecond = RATE * endpoint.share;
+  // Per minute, so a share that isn't a whole number per second (5% of 150) still arrives at its exact rate
+  const rate = Math.max(1, Math.round(perSecond * 60));
+  const measured = { target: rate, duration: `${durationMs}ms` };
   return {
-    executor: 'constant-arrival-rate',
+    // The warm-up climbs from a tenth of the rate to all of it, so an app that just started isn't hit at full rate
+    // while it's cold, which made k6 run out of VUs and drop requests; the measured part holds the full rate
+    executor: 'ramping-arrival-rate',
     exec: endpoint.exec,
-    // Per minute, so a share that isn't a whole number per second (5% of 150) still arrives at its exact rate
-    rate: Math.max(1, Math.round(perSecond * 60)),
+    startRate: warmupMs > 0 ? Math.max(1, Math.round(rate / 10)) : rate,
     timeUnit: '1m',
-    duration: `${warmupMs + durationMs}ms`,
+    stages: warmupMs > 0 ? [{ target: rate, duration: `${warmupMs}ms` }, measured] : [measured],
     // Enough VUs up front for responses averaging half a second, and a cap at three seconds: past it k6 drops
     // iterations, and the dropped_iterations threshold fails the run
     preAllocatedVUs: Math.ceil(perSecond / 2) + 2,
@@ -330,7 +334,8 @@ export function handleSummary(data) {
 
   // A run stopped early (Ctrl+C, an abort) can still pass its thresholds, so check it ran its full length
   const overall = stats(data, '{traffic:measured}', seconds);
-  const expected = sum(Object.values(SCENARIOS).map((scenario) => scenario.rate / 60)) * seconds;
+  const expected = sum(Object.values(SCENARIOS).map((scenario) => scenario.stages[scenario.stages.length - 1].target / 60))
+    * seconds;
   if (overall.requests < expected * 0.95) {
     problems.push(`only ${overall.requests} of about ${Math.round(expected)} requests were measured: the run was cut short`);
   }
