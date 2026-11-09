@@ -5,6 +5,7 @@ using Shop.Modules.Notifications;
 using Shop.Modules.Orders;
 using Shop.Modules.Products;
 using Shop.Modules.Users;
+using Shop.SharedKernel.Diagnostics;
 using Shop.SharedKernel.Errors;
 using Shop.SharedKernel.Persistence;
 
@@ -33,6 +34,13 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 app.UseSecurityHeaders();
+
+// Development only: X-Db-Queries says how many SQL commands a request sent, so an N+1 shows up as a number
+if (app.Environment.IsDevelopment())
+{
+    app.UseDbQueryCountHeader();
+}
+
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
 app.UseStatusCodePages();

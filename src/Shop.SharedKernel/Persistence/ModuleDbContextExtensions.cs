@@ -2,6 +2,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Shop.SharedKernel.Diagnostics;
 
 namespace Shop.SharedKernel.Persistence;
 
@@ -22,6 +25,8 @@ public static class ModuleDbContextExtensions
         where TContext : DbContext
     {
         services.AddSingleton(new ModuleDbContextRegistration(typeof(TContext)));
+        services.AddHttpContextAccessor();
+        services.TryAddSingleton<DbQueryCountingInterceptor>();
 
         return services.AddDbContext<TContext>((serviceProvider, options) =>
         {
@@ -31,6 +36,13 @@ public static class ModuleDbContextExtensions
 
             options.UseNpgsql(connectionString, npgsql =>
                 npgsql.MigrationsHistoryTable(HistoryRepository.DefaultTableName, schema));
+
+            // Development only: counts each request's SQL commands for the X-Db-Queries header, so Production and
+            // the load tests never pay for it
+            if (serviceProvider.GetService<IHostEnvironment>()?.IsDevelopment() == true)
+            {
+                options.AddInterceptors(serviceProvider.GetRequiredService<DbQueryCountingInterceptor>());
+            }
         });
     }
 }

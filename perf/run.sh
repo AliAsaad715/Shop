@@ -109,10 +109,9 @@ start_samplers() {
   samplers+=($!)
 }
 
-# Counts start from zero for each run, where the counters exist: pg_stat_statements comes with task R3-04, Redis
-# with R3-07
+# Counts start from zero for each run, where the counters exist: pg_stat_statements since task R3-04, Redis with R3-07
 reset_counters() {
-  if app_sql -c 'SELECT pg_stat_statements_reset()' >/dev/null 2>&1; then statements=yes; else statements=no; fi
+  if perf/top-queries.sh reset >/dev/null 2>&1; then statements=yes; else statements=no; fi
   if redis_running; then
     docker compose exec -T "$REDIS_SERVICE" redis-cli CONFIG RESETSTAT >/dev/null
   fi
@@ -153,20 +152,10 @@ write_system() {
       } end' <"$tmp/db.txt")
 
   if [[ $statements == yes ]]; then
-    queries=$(app_sql <<'SQL'
-SELECT coalesce(json_agg(q ORDER BY q."totalMs" DESC), '[]') FROM (
-  SELECT calls, round(total_exec_time::numeric, 1) AS "totalMs", round(mean_exec_time::numeric, 2) AS "meanMs", rows,
-         left(regexp_replace(query, '[[:space:]]+', ' ', 'g'), 300) AS query
-  FROM pg_stat_statements
-  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-    AND query NOT LIKE '%pg_stat_activity%' AND query NOT LIKE '%pg_stat_statements%'
-  ORDER BY total_exec_time DESC
-  LIMIT 10) q
-SQL
-)
+    queries=$(perf/top-queries.sh json 10)
   else
     queries=null
-    notes=$(jq -c '. + ["pg_stat_statements is not enabled (task R3-04), so there are no top queries"]' <<<"$notes")
+    notes=$(jq -c '. + ["Postgres has not loaded pg_stat_statements (perf/top-queries.sh says how), so there are no top queries"]' <<<"$notes")
   fi
 
   if redis_running; then

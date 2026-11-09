@@ -274,6 +274,24 @@ same 1,000 req/s. [`perf/results/baseline/README.md`](perf/results/baseline/READ
 chosen, and what the system did: the api used 2.5 cores to Postgres's 1, much of it likely spent logging every SQL
 command.
 
+## Query statistics (task R3-04)
+
+Two ways to see what a request costs the database:
+
+- **pg_stat_statements.** Compose's Postgres loads it at startup and counts every statement's calls and time;
+  `perf/top-queries.sh` lists the costliest, and `perf/run.sh` saves the top ten beside every run. A Postgres container
+  created before this needs `docker compose up -d postgres` once; the data volume stays.
+- **X-Db-Queries.** In Development, every response says how many SQL commands its request sent through EF Core,
+  across all the modules' DbContexts, so an N+1 shows up as a number. A `DbCommandInterceptor` counts them; in other
+  environments neither the counting nor the header exists, so production and the load tests never pay for it.
+
+```sh
+perf/top-queries.sh 5
+curl -si http://localhost:5080/api/v1/products | grep -i x-db-queries   # dotnet run, Development: X-Db-Queries: 2
+```
+
+The product list sends 2 commands (the page and its total), product details 1, a login 2 and "my orders" 2.
+
 ## Verify
 
 ```sh
