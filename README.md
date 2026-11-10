@@ -292,6 +292,23 @@ curl -si http://localhost:5080/api/v1/products | grep -i x-db-queries   # dotnet
 
 The product list sends 2 commands (the page and its total), product details 1, a login 2 and "my orders" 2.
 
+## Catalog paging (task R3-05)
+
+`GET /api/v1/products` pages two ways. A numbered page (`page`) comes with `totalCount`, as before. Every page also
+returns `nextCursor`, and `cursor=<nextCursor>` asks for the page after it: keyset pagination, which finds that page
+through the index at any depth and skips the count, so `page` and `totalCount` come back null. `nextCursor` is null on
+the last page, and `page` with `cursor` is a 422.
+
+```sh
+curl -s "$API/api/v1/products?category=$CATEGORY&pageSize=20"              # page 1, totalCount, nextCursor
+curl -s "$API/api/v1/products?category=$CATEGORY&pageSize=20&cursor=$NEXT"  # the next 20 products
+```
+
+Products are listed newest first, and those created at the same instant by descending ID, matching the indexes
+`(category_id, created_at DESC, id DESC)` and `(created_at DESC, id DESC)`. The deepest catalog page went from 4.09 ms
+in the database to 0.10 ms; [`perf/plans/README.md`](perf/plans/README.md) has the plans before and after, and why the
+other top queries stayed as they are.
+
 ## Verify
 
 ```sh

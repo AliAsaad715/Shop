@@ -24,8 +24,9 @@ internal sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
             .HasForeignKey(product => product.CategoryId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // The ID breaks ties when several products have the same creation time.
-        builder.HasIndex(product => new { product.CreatedAt, product.Id }).IsDescending(true, false);
-        builder.HasIndex(product => new { product.CategoryId, product.CreatedAt, product.Id }).IsDescending(false, true, false);
+        // Newest first, the ID breaking ties in the same direction, so a keyset page (created_at, id) < (cursor) starts
+        // straight at its first row (task R3-05)
+        builder.HasIndex(product => new { product.CreatedAt, product.Id }).IsDescending(true, true);
+        builder.HasIndex(product => new { product.CategoryId, product.CreatedAt, product.Id }).IsDescending(false, true, true);
     }
 }

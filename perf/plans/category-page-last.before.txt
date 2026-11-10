@@ -1,0 +1,32 @@
+SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p WHERE p.category_id = '019a2180-0000-7000-8000-000000000001' ORDER BY p.created_at DESC, p.id LIMIT 20 OFFSET 660 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id;
+
+Sort  (cost=326.30..326.34 rows=15 width=365) (actual time=0.680..0.681 rows=15.00 loops=1)
+  Sort Key: p.created_at DESC, p.id
+  Sort Method: quicksort  Memory: 30kB
+  Buffers: shared hit=244
+  ->  Hash Join  (cost=325.77..326.01 rows=15 width=365) (actual time=0.648..0.654 rows=15.00 loops=1)
+        Hash Cond: (p.category_id = c.id)
+        Buffers: shared hit=244
+        ->  Limit  (cost=324.32..324.36 rows=15 width=358) (actual time=0.629..0.631 rows=15.00 loops=1)
+              Buffers: shared hit=243
+              ->  Sort  (cost=322.67..324.36 rows=675 width=358) (actual time=0.580..0.610 rows=675.00 loops=1)
+                    Sort Key: p.created_at DESC, p.id
+                    Sort Method: quicksort  Memory: 405kB
+                    Buffers: shared hit=243
+                    ->  Bitmap Heap Scan on products p  (cost=37.51..290.95 rows=675 width=358) (actual time=0.076..0.345 rows=675.00 loops=1)
+                          Recheck Cond: (category_id = '019a2180-0000-7000-8000-000000000001'::uuid)
+                          Heap Blocks: exact=233
+                          Buffers: shared hit=243
+                          ->  Bitmap Index Scan on "IX_products_category_id_created_at_id"  (cost=0.00..37.34 rows=675 width=0) (actual time=0.052..0.052 rows=675.00 loops=1)
+                                Index Cond: (category_id = '019a2180-0000-7000-8000-000000000001'::uuid)
+                                Index Searches: 1
+                                Buffers: shared hit=10
+        ->  Hash  (cost=1.20..1.20 rows=20 width=23) (actual time=0.014..0.014 rows=20.00 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 10kB
+              Buffers: shared hit=1
+              ->  Seq Scan on categories c  (cost=0.00..1.20 rows=20 width=23) (actual time=0.006..0.008 rows=20.00 loops=1)
+                    Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=4
+Planning Time: 0.261 ms
+Execution Time: 0.707 ms

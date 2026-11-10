@@ -1,0 +1,11 @@
+SELECT count(*)::int FROM products.products AS p WHERE p.category_id = '019a2180-0000-7000-8000-000000000001';
+
+Aggregate  (cost=45.78..45.79 rows=1 width=4) (actual time=0.290..0.291 rows=1.00 loops=1)
+  Buffers: shared hit=11
+  ->  Index Only Scan using "IX_products_category_id_created_at_id" on products p  (cost=0.28..44.09 rows=675 width=0) (actual time=0.017..0.176 rows=675.00 loops=1)
+        Index Cond: (category_id = '019a2180-0000-7000-8000-000000000001'::uuid)
+        Heap Fetches: 0
+        Index Searches: 1
+        Buffers: shared hit=11
+Planning Time: 0.070 ms
+Execution Time: 0.307 ms

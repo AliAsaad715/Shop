@@ -1,0 +1,115 @@
+{
+  "phase": "after",
+  "commit": "r3-baseline-4-gff5bb18-dirty",
+  "startedAt": "2026-11-10T17:49:40.678Z",
+  "rate": 400,
+  "warmup": "20s",
+  "duration": "60s",
+  "paging": "cursor",
+  "note": "One run on battery, to rank queries by database time; not a measured step",
+  "overall": {
+    "requests": 24002,
+    "rps": 400,
+    "p50Ms": 2.5,
+    "p95Ms": 6.7,
+    "p99Ms": 9.2,
+    "maxMs": 22.4,
+    "errorRate": 0,
+    "bytesReceived": 130446935
+  },
+  "productList": {
+    "route": "GET /api/v1/products",
+    "share": 0.4,
+    "requests": 9600,
+    "rps": 160,
+    "p50Ms": 2.5,
+    "p95Ms": 4.3,
+    "p99Ms": 6.1,
+    "maxMs": 15,
+    "errorRate": 0,
+    "bytesReceived": 105725246
+  },
+  "statementMs": 6115,
+  "topQueries": [
+    {
+      "calls": 6201,
+      "totalMs": 1052.4,
+      "meanMs": 0.170,
+      "rows": 126206,
+      "share": 0.1721,
+      "query": "SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p WHERE p.category_id = $1 ORDER BY p.created_at DESC, p.id DESC LIMIT $2 OFFSET $3 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id DESC"
+    },
+    {
+      "calls": 2840,
+      "totalMs": 734.8,
+      "meanMs": 0.259,
+      "rows": 2840,
+      "share": 0.1201,
+      "query": "SELECT count(*)::int FROM orders.orders AS o WHERE o.customer_id = $1"
+    },
+    {
+      "calls": 4378,
+      "totalMs": 716.8,
+      "meanMs": 0.164,
+      "rows": 91063,
+      "share": 0.1172,
+      "query": "SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p WHERE p.category_id = $1 AND (p.created_at, p.id) < ($2, $3) ORDER BY p.created_at DESC, p.id DESC LIMIT $4 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id DESC"
+    },
+    {
+      "calls": 679,
+      "totalMs": 605.8,
+      "meanMs": 0.892,
+      "rows": 679,
+      "share": 0.0990,
+      "query": "SELECT count(*)::int FROM products.products AS p"
+    },
+    {
+      "calls": 6221,
+      "totalMs": 561.6,
+      "meanMs": 0.090,
+      "rows": 6221,
+      "share": 0.0918,
+      "query": "SELECT count(*)::int FROM products.products AS p WHERE p.category_id = $1"
+    },
+    {
+      "calls": 40200,
+      "totalMs": 473.6,
+      "meanMs": 0.012,
+      "rows": 0,
+      "share": 0.0774,
+      "query": "DISCARD ALL"
+    },
+    {
+      "calls": 2550,
+      "totalMs": 470.8,
+      "meanMs": 0.185,
+      "rows": 50807,
+      "share": 0.0770,
+      "query": "SELECT o.id, o.customer_id, o.status, o.total, ( SELECT COALESCE(sum(o0.quantity), $4)::int FROM orders.order_lines AS o0 WHERE o.id = o0.order_id), o.created_at, o.updated_at FROM orders.orders AS o WHERE o.customer_id = $1 ORDER BY o.created_at DESC, o.id DESC LIMIT $2 OFFSET $3"
+    },
+    {
+      "calls": 11359,
+      "totalMs": 421.3,
+      "meanMs": 0.037,
+      "rows": 11359,
+      "share": 0.0689,
+      "query": "SELECT p.id, p.name, p.description, p.price, p.image_path, p.category_id, c.name, p.created_at FROM products.products AS p INNER JOIN products.categories AS c ON p.category_id = c.id WHERE p.id = $1 LIMIT $2"
+    },
+    {
+      "calls": 2819,
+      "totalMs": 417.6,
+      "meanMs": 0.148,
+      "rows": 2819,
+      "share": 0.0683,
+      "query": "INSERT INTO orders.order_lines (id, line_total, order_id, product_id, product_name, quantity, unit_price) VALUES ($1, $2, $3, $4, $5, $6, $7)"
+    },
+    {
+      "calls": 1420,
+      "totalMs": 183.8,
+      "meanMs": 0.129,
+      "rows": 1420,
+      "share": 0.0301,
+      "query": "INSERT INTO orders.order_status_history (id, changed_at, changed_by, from_status, order_id, to_status) VALUES ($1, $2, $3, $4, $5, $6)"
+    }
+  ]
+}

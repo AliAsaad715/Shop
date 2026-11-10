@@ -7,7 +7,6 @@ using Shop.Modules.Products.Contracts;
 using Shop.Modules.Products.Data;
 using Shop.Modules.Products.Domain;
 using Shop.SharedKernel.Errors;
-using Shop.SharedKernel.Paging;
 
 namespace Shop.Modules.Products.Catalog;
 
@@ -18,7 +17,8 @@ internal static class ProductEndpoints
         endpoints.MapGet("/products", ListAsync)
             .WithName("ListProducts")
             .WithTags("Products")
-            .WithSummary("List products by category with paging (pageSize 1–50, default 20)")
+            .WithSummary("List products newest first, by category, a numbered page (page, with totalCount) or the page after "
+                + "a nextCursor (cursor, as fast at any depth); pageSize 1–50, default 20")
             .AllowAnonymous();
 
         endpoints.MapGet("/products/{id}", GetAsync)
@@ -35,7 +35,7 @@ internal static class ProductEndpoints
             .AllowAnonymous();
     }
 
-    public static async Task<Ok<PagedResponse<ProductResponse>>> ListAsync(
+    public static async Task<Ok<ProductPageResponse>> ListAsync(
         [AsParameters] ListProductsRequest request, ProductsDbContext context, CancellationToken ct)
     {
         var products = context.Products.AsNoTracking();
@@ -44,13 +44,33 @@ internal static class ProductEndpoints
             products = products.Where(product => product.CategoryId == category);
         }
 
-        var totalCount = await products.CountAsync(ct);
-        var page = products.OrderByDescending(product => product.CreatedAt).ThenBy(product => product.Id)
-            .Skip((int)(((long)request.Page - 1) * request.PageSize)).Take(request.PageSize);
-        var items = await Responses(page).ToListAsync(ct);
+        // Keyset: the page starts right after the cursor's product, where the index finds it directly, so a deep page
+        // reads only its own rows and needs no count. One row more than the page says whether another page follows
+        if (ProductCursor.TryDecode(request.Cursor, out var after))
+        {
+            var following = products.Where(product => EF.Functions.LessThan(
+                ValueTuple.Create(product.CreatedAt, product.Id), ValueTuple.Create(after.CreatedAt, after.Id)));
+            var rows = await Responses(Newest(following).Take(request.PageSize + 1)).ToListAsync(ct);
+            var page = rows.Take(request.PageSize).ToList();
+            var next = rows.Count > request.PageSize ? ProductCursor.After(page[^1]).Encode() : null;
+            return TypedResults.Ok(new ProductPageResponse(page, null, request.PageSize, null, next));
+        }
 
-        return TypedResults.Ok(new PagedResponse<ProductResponse>(items, request.Page, request.PageSize, totalCount));
+        var number = request.Page ?? 1;
+        var totalCount = await products.CountAsync(ct);
+        var items = await Responses(Newest(products).Skip((int)(((long)number - 1) * request.PageSize)).Take(request.PageSize))
+            .ToListAsync(ct);
+        var nextCursor = items.Count > 0 && (long)number * request.PageSize < totalCount
+            ? ProductCursor.After(items[^1]).Encode()
+            : null;
+
+        return TypedResults.Ok(new ProductPageResponse(items, number, request.PageSize, totalCount, nextCursor));
     }
+
+    // Newest first, the ID breaking ties in the same direction: then "after this product" is one row comparison on
+    // (created_at, id) that walks the (category_id, created_at DESC, id DESC) index from the right place
+    private static IOrderedQueryable<Product> Newest(IQueryable<Product> products) =>
+        products.OrderByDescending(product => product.CreatedAt).ThenByDescending(product => product.Id);
 
     public static async Task<Results<Ok<ProductDetailsResponse>, ProblemHttpResult>> GetAsync(
         Guid id, ProductsDbContext context, IInventoryService inventory, CancellationToken ct)

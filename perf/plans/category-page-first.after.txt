@@ -1,0 +1,25 @@
+SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p WHERE p.category_id = '019a2180-0000-7000-8000-000000000001' ORDER BY p.created_at DESC, p.id DESC LIMIT 20 OFFSET 0 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id DESC;
+
+Sort  (cost=25.31..25.36 rows=20 width=365) (actual time=0.143..0.145 rows=20.00 loops=1)
+  Sort Key: p.created_at DESC, p.id DESC
+  Sort Method: quicksort  Memory: 31kB
+  Buffers: shared hit=19
+  ->  Hash Join  (cost=1.73..24.88 rows=20 width=365) (actual time=0.070..0.130 rows=20.00 loops=1)
+        Hash Cond: (p.category_id = c.id)
+        Buffers: shared hit=19
+        ->  Limit  (cost=0.28..23.16 rows=20 width=358) (actual time=0.019..0.075 rows=20.00 loops=1)
+              Buffers: shared hit=18
+              ->  Index Scan using "IX_products_created_at_id" on products p  (cost=0.28..772.46 rows=675 width=358) (actual time=0.019..0.073 rows=20.00 loops=1)
+                    Filter: (category_id = '019a2180-0000-7000-8000-000000000001'::uuid)
+                    Rows Removed by Filter: 182
+                    Index Searches: 1
+                    Buffers: shared hit=18
+        ->  Hash  (cost=1.20..1.20 rows=20 width=23) (actual time=0.016..0.016 rows=20.00 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 10kB
+              Buffers: shared hit=1
+              ->  Seq Scan on categories c  (cost=0.00..1.20 rows=20 width=23) (actual time=0.005..0.007 rows=20.00 loops=1)
+                    Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=4
+Planning Time: 0.205 ms
+Execution Time: 0.201 ms

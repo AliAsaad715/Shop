@@ -5,7 +5,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Shop.Modules.Products.Catalog;
 using Shop.Modules.Products.Contracts;
 using Shop.SharedKernel.Errors;
-using Shop.SharedKernel.Paging;
 using Xunit;
 
 namespace Shop.Modules.Products.IntegrationTests;
@@ -24,7 +23,7 @@ public sealed class ProductCatalogTests(ProductCatalogFixture fixture) : IClassF
         Assert.Equal(new[]
         {
             ProductCatalogFixture.HomeProductId, ProductCatalogFixture.NewestBookId,
-            ProductCatalogFixture.FirstBookId, ProductCatalogFixture.SecondBookId,
+            ProductCatalogFixture.SecondBookId, ProductCatalogFixture.FirstBookId,
         }, result.Items.Select(product => product.Id));
     }
 
@@ -41,9 +40,42 @@ public sealed class ProductCatalogTests(ProductCatalogFixture fixture) : IClassF
         Assert.Equal(2, second.Page);
         Assert.Equal(new[]
         {
-            ProductCatalogFixture.NewestBookId, ProductCatalogFixture.FirstBookId, ProductCatalogFixture.SecondBookId,
+            ProductCatalogFixture.NewestBookId, ProductCatalogFixture.SecondBookId, ProductCatalogFixture.FirstBookId,
         }, first.Items.Concat(second.Items).Select(product => product.Id));
         Assert.All(first.Items.Concat(second.Items), product => Assert.Equal(fixture.BooksCategoryId, product.CategoryId));
+    }
+
+    [Fact]
+    public async Task CursorPagesWalkTheCatalogInTheSameOrderAsNumberedPages()
+    {
+        var numbered = await ListAsync("/api/v1/products?pageSize=50");
+        var walked = new List<Guid>();
+        var page = await ListAsync("/api/v1/products?pageSize=1");
+        walked.AddRange(page.Items.Select(product => product.Id));
+        while (page.NextCursor is { } cursor)
+        {
+            page = await ListAsync($"/api/v1/products?pageSize=1&cursor={cursor}");
+            Assert.Null(page.Page);
+            Assert.Null(page.TotalCount);
+            walked.AddRange(page.Items.Select(product => product.Id));
+        }
+
+        Assert.Equal(numbered.Items.Select(product => product.Id), walked);
+        Assert.Null(numbered.NextCursor);
+    }
+
+    [Fact]
+    public async Task CursorPagesNeitherRepeatNorSkipTiedProducts()
+    {
+        var path = $"/api/v1/products?category={fixture.BooksCategoryId}&pageSize=2";
+        var first = await ListAsync(path);
+        var second = await ListAsync($"{path}&cursor={first.NextCursor}");
+
+        Assert.Equal(new[]
+        {
+            ProductCatalogFixture.NewestBookId, ProductCatalogFixture.SecondBookId, ProductCatalogFixture.FirstBookId,
+        }, first.Items.Concat(second.Items).Select(product => product.Id));
+        Assert.Null(second.NextCursor);
     }
 
     [Fact]
@@ -172,6 +204,8 @@ public sealed class ProductCatalogTests(ProductCatalogFixture fixture) : IClassF
     [InlineData("?pageSize=51", "pageSize")]
     [InlineData("?category=00000000-0000-0000-0000-000000000000", "category")]
     [InlineData("?page=2147483647&pageSize=50", "page")]
+    [InlineData("?cursor=not-a-cursor", "cursor")]
+    [InlineData("?page=1&cursor=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "cursor")]
     public async Task InvalidQueriesReturn422WithFieldErrors(string query, string field)
     {
         using var problem = await AssertProblemAsync("/api/v1/products" + query, HttpStatusCode.UnprocessableEntity, ErrorCodes.Common.ValidationFailed);
@@ -226,8 +260,8 @@ public sealed class ProductCatalogTests(ProductCatalogFixture fixture) : IClassF
             catalog.GetByIdsAsync(Array.Empty<Guid>(), new CancellationToken(canceled: true)));
     }
 
-    private async Task<PagedResponse<ProductResponse>> ListAsync(string path) =>
-        (await fixture.Client.GetFromJsonAsync<PagedResponse<ProductResponse>>(path))!;
+    private async Task<ProductPageResponse> ListAsync(string path) =>
+        (await fixture.Client.GetFromJsonAsync<ProductPageResponse>(path))!;
 
     private async Task<JsonElement> DetailsAsync(Guid productId)
     {
