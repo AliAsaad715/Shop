@@ -74,9 +74,13 @@ the project has none.
 
 ## A step: run.sh
 
-`perf/run.sh <label> <rate>` restores the snapshot, then runs `load.js` three times. Runs 2 and 3 continue from run
-1's data, as the plan's restore before each label intends. Run 1 starts with a freshly restarted app, which is what
-the 30 s warm-up is for.
+`perf/run.sh <label> <rate>` runs `load.js` three times, restoring the snapshot before each run. A run creates about
+10,000 orders, all for the five customers that read "my orders", so without the restore their histories, and that
+endpoint's work, would grow from run to run. Each run starts with a freshly restarted app, which is what the 30 s
+warm-up is for.
+
+Measure on mains power: on battery, the laptop the baseline ran on slows its CPU, and 1,000 req/s that it held then
+collapses.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |

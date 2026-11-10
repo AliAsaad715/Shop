@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Runs one step of Requirement 3 (task R3-02b): restores the seeded snapshot, runs perf/load.js three times at a fixed
-# rate, and saves next to each k6 result what the system did while it was measured: CPU per container, database
+# Runs one step of Requirement 3 (task R3-02b): runs perf/load.js three times at a fixed rate, each from the seeded
+# snapshot, and saves next to each k6 result what the system did while it was measured: CPU per container, database
 # connections, the top queries and Redis hits. perf/compare.sh turns the runs into the before/after report.
 #
 #   perf/run.sh <label> <rate>        e.g. perf/run.sh baseline 200
@@ -178,7 +178,7 @@ write_system() {
      topQueries: $topQueries, redis: $redis, notes: $notes}' >"${result%.json}.system.json"
 }
 
-echo "Step \"$label\" at $commit: $RUNS run$([[ $RUNS -eq 1 ]] || echo s) at $rate req/s, starting from the seeded snapshot"
+echo "Step \"$label\" at $commit: $RUNS run$([[ $RUNS -eq 1 ]] || echo s) at $rate req/s, each from the seeded snapshot"
 docker rm -f "$K6_CONTAINER" >/dev/null 2>&1 || true # left behind by a run that crashed
 perf/snapshot.sh restore
 
@@ -208,6 +208,12 @@ valid=0
 for ((run = 1; run <= RUNS; run++)); do
   echo
   echo "== $label: run $run of $RUNS =="
+  # Every run starts from the seeded data. A run creates about 10,000 orders, all for the five customers that read
+  # "my orders", so without this their histories, and that endpoint's work, would grow from run to run
+  if [[ $run -gt 1 ]]; then
+    perf/snapshot.sh restore
+  fi
+
   reset_counters
   previous=$(newest_result)
   start_samplers
