@@ -1,0 +1,134 @@
+{
+  "label": "baseline",
+  "run": 3,
+  "result": "baseline-20261110T183656Z.json",
+  "commit": "r3-rebaseline",
+  "snapshot": "saved 2026-11-08T17:59:13Z at r3-baseline",
+  "window": {
+    "measuredFrom": "2026-11-10T18:37:27.759Z",
+    "measuredTo": "2026-11-10T18:40:27.759Z"
+  },
+  "sampleSeconds": 2,
+  "cpu": {
+    "cores": 8,
+    "containers": {
+      "api": {
+        "avgPercent": 251.9,
+        "maxPercent": 262.4
+      },
+      "inventory": {
+        "avgPercent": 28.5,
+        "maxPercent": 33.8
+      },
+      "inventory-db": {
+        "avgPercent": 11.4,
+        "maxPercent": 20.7
+      },
+      "k6": {
+        "avgPercent": 51.7,
+        "maxPercent": 97.9
+      },
+      "postgres": {
+        "avgPercent": 100.5,
+        "maxPercent": 149.6
+      }
+    }
+  },
+  "database": {
+    "maxConnections": 82,
+    "avgActive": 1,
+    "maxActive": 6,
+    "maxWaiting": 4,
+    "waitEvents": {
+      "Client:ClientRead": 25,
+      "LWLock:WALWrite": 3,
+      "IO:WalSync": 1
+    }
+  },
+  "topQueries": [
+    {
+      "calls": 56816,
+      "totalMs": 13251.6,
+      "meanMs": 0.233,
+      "rows": 1134315,
+      "share": 0.2060,
+      "query": "SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p WHERE p.category_id = $1 ORDER BY p.created_at DESC, p.id LIMIT $2 OFFSET $3 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id"
+    },
+    {
+      "calls": 19649,
+      "totalMs": 12982.5,
+      "meanMs": 0.661,
+      "rows": 19649,
+      "share": 0.2018,
+      "query": "SELECT count(*)::int FROM orders.orders AS o WHERE o.customer_id = $1"
+    },
+    {
+      "calls": 7848,
+      "totalMs": 7474.2,
+      "meanMs": 0.952,
+      "rows": 7848,
+      "share": 0.1162,
+      "query": "SELECT count(*)::int FROM products.products AS p"
+    },
+    {
+      "calls": 70863,
+      "totalMs": 7263.3,
+      "meanMs": 0.102,
+      "rows": 70863,
+      "share": 0.1129,
+      "query": "SELECT count(*)::int FROM products.products AS p WHERE p.category_id = $1"
+    },
+    {
+      "calls": 19726,
+      "totalMs": 3502.3,
+      "meanMs": 0.178,
+      "rows": 19726,
+      "share": 0.0544,
+      "query": "INSERT INTO orders.order_lines (id, line_total, order_id, product_id, product_name, quantity, unit_price) VALUES ($1, $2, $3, $4, $5, $6, $7)"
+    },
+    {
+      "calls": 17653,
+      "totalMs": 3461.7,
+      "meanMs": 0.196,
+      "rows": 352837,
+      "share": 0.0538,
+      "query": "SELECT o.id, o.customer_id, o.status, o.total, ( SELECT COALESCE(sum(o0.quantity), $4)::int FROM orders.order_lines AS o0 WHERE o.id = o0.order_id), o.created_at, o.updated_at FROM orders.orders AS o WHERE o.customer_id = $1 ORDER BY o.created_at DESC, o.id DESC LIMIT $2 OFFSET $3"
+    },
+    {
+      "calls": 78599,
+      "totalMs": 3374.6,
+      "meanMs": 0.043,
+      "rows": 78599,
+      "share": 0.0525,
+      "query": "SELECT p.id, p.name, p.description, p.price, p.image_path, p.category_id, c.name, p.created_at FROM products.products AS p INNER JOIN products.categories AS c ON p.category_id = c.id WHERE p.id = $1 LIMIT $2"
+    },
+    {
+      "calls": 304765,
+      "totalMs": 3315.8,
+      "meanMs": 0.011,
+      "rows": 0,
+      "share": 0.0515,
+      "query": "DISCARD ALL"
+    },
+    {
+      "calls": 14047,
+      "totalMs": 3028.3,
+      "meanMs": 0.216,
+      "rows": 281540,
+      "share": 0.0471,
+      "query": "SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p WHERE p.category_id = $1 ORDER BY p.created_at DESC, p.id LIMIT $2 OFFSET $2 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id"
+    },
+    {
+      "calls": 6320,
+      "totalMs": 2411.4,
+      "meanMs": 0.382,
+      "rows": 126358,
+      "share": 0.0375,
+      "query": "SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p ORDER BY p.created_at DESC, p.id LIMIT $1 OFFSET $2 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id"
+    }
+  ],
+  "redis": null,
+  "notes": [
+    "no redis service (task R3-07), so there are no cache hits"
+  ]
+}
