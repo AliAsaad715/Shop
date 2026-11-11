@@ -56,5 +56,5 @@ internal sealed class DbQueryCountingInterceptor(IHttpContextAccessor httpContex
         return ValueTask.FromResult(result);
     }
 
-    private void Count() => httpContextAccessor.HttpContext?.Features.Get<DbQueryCount>()?.Increment();
+    private void Count() => (DbQueryCount.Current ?? httpContextAccessor.HttpContext?.Features.Get<DbQueryCount>())?.Increment();
 }

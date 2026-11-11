@@ -243,7 +243,7 @@ for ((run = 1; run <= RUNS; run++)); do
       + ". p50 \(.overall.p50Ms) ms, p95 \(.overall.p95Ms) ms, p99 \(.overall.p99Ms) ms. CPU "
       + ([$s.cpu.containers | to_entries[] | "\(.key) \(.value.avgPercent)%"] | join(", "))
       + (if $s.database then ". Database: up to \($s.database.maxConnections) connections, \($s.database.maxWaiting) waiting" else "" end)
-      + (if $s.redis.hitRatio then ". Redis hit ratio \($s.redis.hitRatio)" else "" end)' "$result"
+      + (if $s.redis.hitRatio then ". Redis keyspace hit ratio \($s.redis.hitRatio)" else "" end)' "$result"
   echo "Saved ${result%.json}.system.json"
   if jq -e .valid "$result" >/dev/null; then
     valid=$((valid + 1))

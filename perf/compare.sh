@@ -89,7 +89,7 @@ def setup: {rate: .settings.rate, warmup: .settings.warmup, duration: .settings.
   (if $base == null then "There is no \"\($baseline)\" step yet, so no changes are shown.\n" else empty end),
   "## Overall",
   "",
-  (["Step", "Runs", "Commit", "p50", "p95", "p99", "Errors", "Cache hit ratio"] | row),
+  (["Step", "Runs", "Commit", "p50", "p95", "p99", "Errors", "Redis keyspace hit ratio"] | row),
   ([range(8) | "---"] | row),
   ($steps[] | . as $step | [
     .label, (.runs | length | tostring), ([.runs[].result.commit] | unique | join(", ")),

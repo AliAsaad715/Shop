@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using Shop.Modules.Products.Data;
+using Shop.Modules.Products.Catalog;
 using Shop.Modules.Products.Domain;
 using Shop.Modules.Products.Images;
 using Shop.SharedKernel.Errors;
@@ -31,7 +32,7 @@ internal static class CreateProductEndpoint
 
     public static async Task<Results<Created<CreatedProductResponse>, ProblemHttpResult>> HandleAsync(
         [FromForm] CreateProductRequest request, ProductsDbContext context, IImageStorage images,
-        HttpContext httpContext, ILogger<IImageStorage> logger, CancellationToken ct)
+        HttpContext httpContext, ILogger<IImageStorage> logger, CatalogCacheInvalidator cache, CancellationToken ct)
     {
         var file = request.Image!;
         if (file.Length > ImageUploadLimits.ImageBytes)
@@ -95,6 +96,8 @@ internal static class CreateProductEndpoint
 
             throw;
         }
+
+        await cache.ProductChangedAsync(product.Id, null, category.Id);
 
         var location = $"{httpContext.Request.PathBase}{httpContext.Request.Path.ToString().TrimEnd('/')}/{product.Id}";
         return TypedResults.Created(location, new CreatedProductResponse(

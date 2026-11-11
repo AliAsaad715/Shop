@@ -121,6 +121,7 @@ public sealed class DemoSeedFixture : IAsyncLifetime
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:Shop"] = connectionString,
+            ["CatalogCache:Enabled"] = "false",
             ["Images:RootPath"] = ImageRoot,
             ["DemoSeed:Enabled"] = "true",
             // Required at startup; seeding never calls the warehouse

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Shop.Modules.Products.Data;
+using Shop.Modules.Products.Catalog;
 using Shop.Modules.Products.Domain;
 using Shop.Modules.Products.Images;
 
@@ -83,6 +84,8 @@ internal sealed class DemoProductSeeder(
             throw;
         }
 
+        await scope.ServiceProvider.GetRequiredService<CatalogCacheInvalidator>()
+            .ProductsCreatedAsync(missing.Select(item => (item.Item.Id, item.Item.CategoryId)));
         logger.LogInformation("Seeded {Count} demo products", missing.Count);
     }
 

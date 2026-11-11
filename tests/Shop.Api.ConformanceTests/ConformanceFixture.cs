@@ -67,6 +67,7 @@ internal sealed class ConformanceApiFactory(string connectionString) : WebApplic
         builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:Shop"] = connectionString,
+            ["CatalogCache:Enabled"] = "false",
             ["Admin:Email"] = string.Empty,
             ["Admin:Password"] = string.Empty,
             ["AllowedHosts"] = "*",

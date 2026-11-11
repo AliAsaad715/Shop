@@ -23,6 +23,8 @@ services:
       Cors__AllowedOrigins__0: ${FRONTEND_ORIGIN:-http://localhost:5173}
       # The warehouse's gRPC endpoint: plain HTTP/2 inside the compose network
       Inventory__Address: http://inventory:50051
+      ConnectionStrings__Redis: redis:6379
+      CatalogCache__Enabled: ${CATALOG_CACHE_ENABLED:-true}
     ports:
       - "${API_PORT:-8080}:8080"
     volumes:
@@ -34,9 +36,26 @@ services:
       # that never gets healthy must not keep the shop down
       inventory:
         condition: service_started
+      redis:
+        condition: service_started
+
+  redis:
+    image: redis:8.10.3-alpine
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+      start_interval: 1s
+      start_period: 10s
 
   postgres:
     image: postgres:18
+    # Reap health-check children outside Postgres: a timed-out probe must not trigger crash recovery.
+    init: true
     # pg_stat_statements counts every statement's calls and time (task R3-04); perf/top-queries.sh lists the costliest
     command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
     # Comes back with Docker after a reboot, so a local `dotnet run` finds it on 5433
@@ -84,6 +103,7 @@ services:
   # The warehouse's own database (task R2-03), on a network the app isn't on, so the app has no route to it
   inventory-db:
     image: postgres:18
+    init: true
     environment:
       POSTGRES_DB: ${INVENTORY_DB_NAME:-inventory}
       POSTGRES_USER: ${INVENTORY_DB_USER:-inventory}

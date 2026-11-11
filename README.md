@@ -332,6 +332,42 @@ Tests in Development read `X-Db-Queries` and fail if a count grows with the data
 order details stays at 1 query with 1 line or 5 and a full history, "my orders" at 2 for 1 or 50 per page, a new order
 at 1 save for 1 line or 5, a status change at 2, and the current user at 1.
 
+## Catalog caching (task R3-07)
+
+Catalog HTTP reads use HybridCache: a five-second in-process copy (L1), then Redis (L2), then PostgreSQL on a miss.
+Redis runs with 128 MB, `allkeys-lru`, and no persistence. Product data without stock lasts 10 minutes, categories
+one hour, and numbered product pages 1-3 last 60 seconds. The key includes the category, page and page size;
+omitted defaults share a key with explicit defaults. Cursor pages and deeper numbered pages bypass the cache.
+The current load test follows cursors after page 1, so about 60% of its list traffic is eligible.
+
+Stock is fetched from the warehouse on every detail request, including warm reads. Order creation's batched
+`IProductCatalog` continues to read current prices directly from PostgreSQL. Orders, authentication state,
+permissions, errors and HTTP headers are never stored in the catalog cache.
+
+Compose supplies `ConnectionStrings__Redis=redis:6379`; local Development uses `localhost:6379`. Redis is published
+only on localhost (`REDIS_PORT`, default 6379). Disable caching with `CatalogCache__Enabled=false`, or
+`CATALOG_CACHE_ENABLED=false` in Compose. `CatalogCache` also configures `ProductTtl`, `CategoriesTtl`, `ListTtl`,
+`LocalTtl` and `MaxCachedPage` (1-3). Enabling caching requires a Redis address. Durations must be positive, and
+the local TTL must not exceed any distributed TTL. Redis outages fall back to database reads with short client
+timeouts; database errors and cancellation still propagate.
+
+After saving a new product, creation invalidates its category's pages and the unfiltered pages. The demo seeder
+does the same only when it adds products. Invalidation has an independent two-second cancellation budget after
+commit; failure is logged and doesn't report an already saved product as failed. TTL bounds stale data when
+invalidation cannot reach Redis. Other app instances can retain their L1 copy for up to its short expiry.
+
+R3-08 should call the internal `CatalogCacheInvalidator.ProductChangedAsync(id, oldCategory, newCategory)` after
+the edit commits. This removes `product:{id}` and invalidates both category tags plus the unfiltered list tag.
+`CategoriesChangedAsync()` removes categories and invalidates catalog bodies that contain category names.
+There is no new PUT endpoint in R3-07. Tags invalidate entries logically; Redis keys can remain until expiry.
+
+`perf/run.sh` already flushes Redis on snapshot restore and resets its statistics before each run. The report's
+**Redis keyspace hit ratio** is `hits / (hits + misses)` (null with no lookups), covering setup, warm-up and measured
+traffic, including tag lookups. It does not measure L1 hits or the percentage of HTTP requests served from cache.
+`CatalogCacheTests` use two hosts with isolated PostgreSQL and Redis to prove L1/L2 hits, expiry, one concurrent
+fill, cancellation, live stock/prices, invalidation and outage behavior. Existing query-count tests disable caching
+explicitly; cold cache fills still contribute to Development's `X-Db-Queries`.
+
 ## Verify
 
 ```sh
