@@ -309,6 +309,29 @@ Products are listed newest first, and those created at the same instant by desce
 in the database to 0.10 ms; [`perf/plans/README.md`](perf/plans/README.md) has the plans before and after, and why the
 other top queries stayed as they are.
 
+## Round trips per request (task R3-06)
+
+No endpoint has an N+1: every request sends the same number of SQL commands however many lines, orders or products
+it touches. Orders look up all their products in one batched `IProductCatalog.GetByIdsAsync`, and reads are projected
+into their responses without tracking. Three endpoints still made round trips they didn't need:
+
+| Request | Before | After | Change |
+| --- | --- | --- | --- |
+| `GET /api/v1/orders/{id}` | 3 | 1 | One query, projected into the response, instead of the order, its lines and its history one after another |
+| `PATCH /api/v1/orders/{id}/status` | 4 | 2 | The order read in one query, then one save |
+| `GET /api/v1/users/me` | 2 | 1 | One projection for the profile and its roles, which no longer reads the password hash |
+
+Joining an order's lines to its history in one query multiplies rows, but the history never passes 4 rows (Pending,
+Confirmed, Shipped, Delivered), so that costs far less than two more round trips. The other endpoints already sent the
+fewest: 1 for categories, a product page by cursor and product details; 2 for a numbered product page and "my orders"
+(the page and its total), and for a login. A registration sends 9, Identity's own checks before and after it adds the
+role; it isn't in the hot path, so it stays Identity's. The pending-release worker saves once per release on purpose,
+so a crash halfway keeps what already went back.
+
+Tests in Development read `X-Db-Queries` and fail if a count grows with the data, which is what an N+1 looks like:
+order details stays at 1 query with 1 line or 5 and a full history, "my orders" at 2 for 1 or 50 per page, a new order
+at 1 save for 1 line or 5, a status change at 2, and the current user at 1.
+
 ## Verify
 
 ```sh

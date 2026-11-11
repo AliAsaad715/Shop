@@ -5,9 +5,11 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Shop.Modules.Users.Data;
 using Shop.SharedKernel.Auth;
+using Shop.SharedKernel.Diagnostics;
 using Shop.SharedKernel.Errors;
 using Shop.SharedKernel.Validation;
 using Testcontainers.PostgreSql;
@@ -31,6 +33,9 @@ public sealed class AuthApi : IAsyncLifetime
     public int LoginPermitLimit { get; init; } = 1000;
     public int LoginWindowSeconds { get; init; } = 60;
 
+    // Development adds the X-Db-Queries header (task R3-04); unset, the environment variables decide, as before
+    public string? EnvironmentName { get; init; }
+
     public void TrackUser(Guid id) => _createdUsers.Add(id);
 
     public async Task InitializeAsync()
@@ -43,7 +48,7 @@ public sealed class AuthApi : IAsyncLifetime
             connectionString = _postgres.GetConnectionString();
         }
 
-        var builder = WebApplication.CreateBuilder();
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = EnvironmentName });
         builder.WebHost.UseTestServer();
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
@@ -64,6 +69,11 @@ public sealed class AuthApi : IAsyncLifetime
         await using (var scope = _app.Services.CreateAsyncScope())
         {
             await scope.ServiceProvider.GetRequiredService<UsersDbContext>().Database.MigrateAsync();
+        }
+
+        if (_app.Environment.IsDevelopment())
+        {
+            _app.UseDbQueryCountHeader();
         }
 
         _app.UseExceptionHandler();
