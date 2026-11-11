@@ -1,0 +1,106 @@
+{
+  "label": "after-db",
+  "commit": "r3-before-redis",
+  "startedAt": "2026-11-11T17:06:25.812Z",
+  "api": "http://localhost:8080",
+  "settings": {
+    "rate": 400,
+    "warmup": "30s",
+    "duration": "3m",
+    "pageSize": 20,
+    "paging": "cursor"
+  },
+  "dataset": {
+    "categories": 20,
+    "products": 5006,
+    "customers": 5,
+    "customerSource": "seeded"
+  },
+  "window": {
+    "measuredFrom": "2026-11-11T17:06:59.896Z",
+    "measuredTo": "2026-11-11T17:09:59.896Z"
+  },
+  "overall": {
+    "requests": 65959,
+    "rps": 366.4,
+    "p50Ms": 3.7,
+    "p95Ms": 3591.5,
+    "p99Ms": 6790.2,
+    "maxMs": 10006.3,
+    "errorRate": 0.0003,
+    "bytesReceived": 355709188
+  },
+  "endpoints": {
+    "product_list": {
+      "route": "GET /api/v1/products",
+      "share": 0.4,
+      "requests": 26141,
+      "rps": 145.2,
+      "p50Ms": 3.3,
+      "p95Ms": 3777.1,
+      "p99Ms": 6913.9,
+      "maxMs": 9993.9,
+      "errorRate": 0.0004,
+      "bytesReceived": 287574484
+    },
+    "product_details": {
+      "route": "GET /api/v1/products/{id}",
+      "share": 0.4,
+      "requests": 26499,
+      "rps": 147.2,
+      "p50Ms": 3.7,
+      "p95Ms": 3404.4,
+      "p99Ms": 5096.4,
+      "maxMs": 7886.4,
+      "errorRate": 0.0003,
+      "bytesReceived": 24472766
+    },
+    "categories": {
+      "route": "GET /api/v1/categories",
+      "share": 0.05,
+      "requests": 3457,
+      "rps": 19.2,
+      "p50Ms": 2.6,
+      "p95Ms": 3331.3,
+      "p99Ms": 5319.9,
+      "maxMs": 7463.9,
+      "errorRate": 0,
+      "bytesReceived": 5551942
+    },
+    "my_orders": {
+      "route": "GET /api/v1/orders",
+      "share": 0.1,
+      "requests": 6575,
+      "rps": 36.5,
+      "p50Ms": 4.1,
+      "p95Ms": 5373.1,
+      "p99Ms": 7928.8,
+      "maxMs": 9486.6,
+      "errorRate": 0.0003,
+      "bytesReceived": 34419717
+    },
+    "create_order": {
+      "route": "POST /api/v1/orders",
+      "share": 0.05,
+      "requests": 3287,
+      "rps": 18.3,
+      "p50Ms": 14.1,
+      "p95Ms": 5932,
+      "p99Ms": 8123.5,
+      "maxMs": 10006.3,
+      "errorRate": 0.0012,
+      "bytesReceived": 3690279
+    }
+  },
+  "droppedIterations": 6043,
+  "vus": {
+    "allocated": 1226,
+    "preallocated": 210,
+    "cap": 1250
+  },
+  "valid": false,
+  "problems": [
+    "dropped_iterations count==0",
+    "only 65959 of about 72000 requests were measured: the run was cut short"
+  ]
+}

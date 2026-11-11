@@ -1,0 +1,103 @@
+{
+  "label": "after-redis",
+  "commit": "r3-after-redis",
+  "startedAt": "2026-11-11T17:20:10.887Z",
+  "api": "http://localhost:8080",
+  "settings": {
+    "rate": 400,
+    "warmup": "30s",
+    "duration": "3m",
+    "pageSize": 20,
+    "paging": "cursor"
+  },
+  "dataset": {
+    "categories": 20,
+    "products": 5006,
+    "customers": 5,
+    "customerSource": "seeded"
+  },
+  "window": {
+    "measuredFrom": "2026-11-11T17:20:44.996Z",
+    "measuredTo": "2026-11-11T17:23:44.996Z"
+  },
+  "overall": {
+    "requests": 72002,
+    "rps": 400,
+    "p50Ms": 1.9,
+    "p95Ms": 9.8,
+    "p99Ms": 13.2,
+    "maxMs": 108.3,
+    "errorRate": 0,
+    "bytesReceived": 391223647
+  },
+  "endpoints": {
+    "product_list": {
+      "route": "GET /api/v1/products",
+      "share": 0.4,
+      "requests": 28800,
+      "rps": 160,
+      "p50Ms": 1.1,
+      "p95Ms": 3.2,
+      "p99Ms": 5.1,
+      "maxMs": 74.9,
+      "errorRate": 0,
+      "bytesReceived": 317079237
+    },
+    "product_details": {
+      "route": "GET /api/v1/products/{id}",
+      "share": 0.4,
+      "requests": 28800,
+      "rps": 160,
+      "p50Ms": 2,
+      "p95Ms": 3.8,
+      "p99Ms": 5.8,
+      "maxMs": 71.8,
+      "errorRate": 0,
+      "bytesReceived": 26624439
+    },
+    "categories": {
+      "route": "GET /api/v1/categories",
+      "share": 0.05,
+      "requests": 3600,
+      "rps": 20,
+      "p50Ms": 0.6,
+      "p95Ms": 1.1,
+      "p99Ms": 2.7,
+      "maxMs": 15.8,
+      "errorRate": 0,
+      "bytesReceived": 5781600
+    },
+    "my_orders": {
+      "route": "GET /api/v1/orders",
+      "share": 0.1,
+      "requests": 7201,
+      "rps": 40,
+      "p50Ms": 3.1,
+      "p95Ms": 5.4,
+      "p99Ms": 8.2,
+      "maxMs": 68.1,
+      "errorRate": 0,
+      "bytesReceived": 37703394
+    },
+    "create_order": {
+      "route": "POST /api/v1/orders",
+      "share": 0.05,
+      "requests": 3601,
+      "rps": 20,
+      "p50Ms": 11.4,
+      "p95Ms": 15.1,
+      "p99Ms": 24.8,
+      "maxMs": 108.3,
+      "errorRate": 0,
+      "bytesReceived": 4034977
+    }
+  },
+  "droppedIterations": 0,
+  "vus": {
+    "allocated": 210,
+    "preallocated": 210,
+    "cap": 1250
+  },
+  "valid": true,
+  "problems": []
+}

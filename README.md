@@ -368,6 +368,12 @@ traffic, including tag lookups. It does not measure L1 hits or the percentage of
 fill, cancellation, live stock/prices, invalidation and outage behavior. Existing query-count tests disable caching
 explicitly; cold cache fills still contribute to Development's `X-Db-Queries`.
 
+The measured Redis comparison uses **400 req/s on both versions**, three valid runs each: overall p95 fell from
+10.8 to 9.8 ms, catalog-list p95 from 4.9 to 3.2 ms, and categories from 4.3 to 1.1 ms. Redis's keyspace hit ratio
+was 73.7%. [`perf/results/after-redis/README.md`](perf/results/after-redis/README.md) records all attempts, the
+environment and the interpretation; [`comparison.redis.md`](perf/results/comparison.redis.md) isolates the Redis
+change. The historical baseline is at 1,000 req/s with a different CPU allocation, so its deltas don't compare.
+
 ## Verify
 
 ```sh

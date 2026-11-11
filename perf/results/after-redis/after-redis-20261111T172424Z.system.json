@@ -1,0 +1,138 @@
+{
+  "label": "after-redis",
+  "run": 2,
+  "result": "after-redis-20261111T172424Z.json",
+  "commit": "r3-after-redis",
+  "snapshot": "saved 2026-11-11T16:40:17Z at r3-before-redis",
+  "window": {
+    "measuredFrom": "2026-11-11T17:24:58.849Z",
+    "measuredTo": "2026-11-11T17:27:58.849Z"
+  },
+  "sampleSeconds": 2,
+  "cpu": {
+    "cores": 12,
+    "containers": {
+      "api": {
+        "avgPercent": 85.8,
+        "maxPercent": 131.9
+      },
+      "inventory": {
+        "avgPercent": 17.6,
+        "maxPercent": 31.3
+      },
+      "inventory-db": {
+        "avgPercent": 5.9,
+        "maxPercent": 18.7
+      },
+      "k6": {
+        "avgPercent": 29.5,
+        "maxPercent": 44.3
+      },
+      "postgres": {
+        "avgPercent": 15.4,
+        "maxPercent": 29
+      },
+      "redis": {
+        "avgPercent": 1.8,
+        "maxPercent": 5.9
+      }
+    }
+  },
+  "database": {
+    "maxConnections": 6,
+    "avgActive": 0,
+    "maxActive": 2,
+    "maxWaiting": 1,
+    "waitEvents": {
+      "IO:WalSync": 1
+    }
+  },
+  "topQueries": [
+    {
+      "calls": 7859,
+      "totalMs": 1837.9,
+      "meanMs": 0.234,
+      "rows": 7859,
+      "share": 0.2305,
+      "query": "SELECT count(*)::int FROM orders.orders AS o WHERE o.customer_id = $1"
+    },
+    {
+      "calls": 11574,
+      "totalMs": 1746.6,
+      "meanMs": 0.151,
+      "rows": 240925,
+      "share": 0.2191,
+      "query": "SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p WHERE p.category_id = $1 AND (p.created_at, p.id) < ($2, $3) ORDER BY p.created_at DESC, p.id DESC LIMIT $4 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id DESC"
+    },
+    {
+      "calls": 7820,
+      "totalMs": 1066.8,
+      "meanMs": 0.136,
+      "rows": 7820,
+      "share": 0.1338,
+      "query": "INSERT INTO orders.order_lines (id, line_total, order_id, product_id, product_name, quantity, unit_price) VALUES ($1, $2, $3, $4, $5, $6, $7)"
+    },
+    {
+      "calls": 7049,
+      "totalMs": 959.4,
+      "meanMs": 0.136,
+      "rows": 140859,
+      "share": 0.1203,
+      "query": "SELECT o.id, o.customer_id, o.status, o.total, ( SELECT COALESCE(sum(o0.quantity), $4)::int FROM orders.order_lines AS o0 WHERE o.id = o0.order_id), o.created_at, o.updated_at FROM orders.orders AS o WHERE o.customer_id = $1 ORDER BY o.created_at DESC, o.id DESC LIMIT $2 OFFSET $3"
+    },
+    {
+      "calls": 40902,
+      "totalMs": 747.9,
+      "meanMs": 0.018,
+      "rows": 0,
+      "share": 0.0938,
+      "query": "DISCARD ALL"
+    },
+    {
+      "calls": 3929,
+      "totalMs": 414.8,
+      "meanMs": 0.106,
+      "rows": 3929,
+      "share": 0.0520,
+      "query": "INSERT INTO orders.orders (id, created_at, customer_id, status, total, updated_at, version) VALUES ($1, $2, $3, $4, $5, $6, $7)"
+    },
+    {
+      "calls": 3929,
+      "totalMs": 401.7,
+      "meanMs": 0.102,
+      "rows": 3929,
+      "share": 0.0504,
+      "query": "INSERT INTO orders.order_status_history (id, changed_at, changed_by, from_status, order_id, to_status) VALUES ($1, $2, $3, $4, $5, $6)"
+    },
+    {
+      "calls": 810,
+      "totalMs": 183.7,
+      "meanMs": 0.227,
+      "rows": 16057,
+      "share": 0.0230,
+      "query": "SELECT o.id, o.customer_id, o.status, o.total, ( SELECT COALESCE(sum(o0.quantity), $3)::int FROM orders.order_lines AS o0 WHERE o.id = o0.order_id), o.created_at, o.updated_at FROM orders.orders AS o WHERE o.customer_id = $1 ORDER BY o.created_at DESC, o.id DESC LIMIT $2 OFFSET $2"
+    },
+    {
+      "calls": 1497,
+      "totalMs": 179.6,
+      "meanMs": 0.120,
+      "rows": 31377,
+      "share": 0.0225,
+      "query": "SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p WHERE (p.created_at, p.id) < ($1, $2) ORDER BY p.created_at DESC, p.id DESC LIMIT $3 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id DESC"
+    },
+    {
+      "calls": 3929,
+      "totalMs": 171.1,
+      "meanMs": 0.044,
+      "rows": 7820,
+      "share": 0.0215,
+      "query": "SELECT p.id, p.name, p.price FROM products.products AS p WHERE p.id = ANY ($1)"
+    }
+  ],
+  "redis": {
+    "hits": 22360,
+    "misses": 7967,
+    "hitRatio": 0.737
+  },
+  "notes": []
+}
