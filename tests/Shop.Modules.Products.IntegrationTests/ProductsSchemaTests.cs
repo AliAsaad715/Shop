@@ -63,10 +63,11 @@ public sealed class ProductsSchemaTests
         negativePrice.Price = -0.01m;
         await AssertRejectedAsync(options, negativePrice, PostgresErrorCodes.CheckViolation);
 
-        // A category in use cannot disappear underneath a product.
+        // A category in use cannot disappear underneath a product. It's loaded first: its row version (xmin, task
+        // R3-09) is a concurrency token, so a delete has to name the version it saw.
         await using (var deletion = new ProductsDbContext(options))
         {
-            deletion.Categories.Remove(new Category { Id = categories[0].Id, Name = categories[0].Name });
+            deletion.Categories.Remove(await deletion.Categories.SingleAsync(category => category.Id == categories[0].Id));
             var error = await Assert.ThrowsAsync<DbUpdateException>(() => deletion.SaveChangesAsync());
             Assert.Equal(PostgresErrorCodes.RestrictViolation, Assert.IsType<PostgresException>(error.InnerException).SqlState);
         }

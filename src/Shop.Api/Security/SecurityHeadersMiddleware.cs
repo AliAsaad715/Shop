@@ -34,7 +34,9 @@ internal sealed class SecurityHeadersMiddleware(RequestDelegate next)
                 headers.ContentSecurityPolicy = DocsPolicy;
             }
 
-            if (context.User.Identities.Any(identity => identity.IsAuthenticated))
+            // An authenticated response isn't stored, unless its endpoint chose how it's cached: product details are the
+            // same for everyone, and say no-cache, so a browser keeps them and checks with an ETag (task R3-09)
+            if (context.User.Identities.Any(identity => identity.IsAuthenticated) && string.IsNullOrEmpty(headers.CacheControl))
             {
                 headers.CacheControl = "no-store";
             }

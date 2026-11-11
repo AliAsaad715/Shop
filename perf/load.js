@@ -19,6 +19,7 @@ const LABEL = (__ENV.LABEL || 'run').replace(/[^\w.-]+/g, '-');
 const COMMIT = __ENV.COMMIT || 'unknown';
 const RESULTS_DIR = __ENV.RESULTS_DIR || 'perf/results';
 const CUSTOMERS = positive('CUSTOMERS', 5);    // registered only when CUSTOMER_EMAILS is empty
+const ETAGS = onOff('ETAGS', true);            // product_details sends back the ETag it got, as a browser does
 const PAGE_SIZE = 20;                          // what a shopper's list page asks for
 const DISCOVERY_PAGE_SIZE = 50;                // the largest page, to read the catalog in setup quickly
 
@@ -38,8 +39,17 @@ const ENDPOINTS = {
   create_order: { exec: 'createOrder', share: 0.05, method: 'POST', route: '/api/v1/orders', expect: 201 },
 };
 
+// ONLY runs part of the mix, such as product_details on its own; its runs measure that part, not a step
+const ONLY = (__ENV.ONLY || '').split(',').map((name) => name.trim()).filter(Boolean);
+ONLY.forEach((name) => {
+  if (!ENDPOINTS[name]) {
+    throw new Error(`ONLY names endpoints from: ${Object.keys(ENDPOINTS).join(', ')}; "${name}" isn't one`);
+  }
+});
+const RUNNING = Object.keys(ENDPOINTS).filter((name) => ONLY.length === 0 || ONLY.includes(name));
+
 // A copy of our own: k6 rewrites the exported options, and the summary reads the VU counts back from here
-const SCENARIOS = Object.fromEntries(Object.entries(ENDPOINTS).map(([name, endpoint]) => [name, arrivals(endpoint)]));
+const SCENARIOS = Object.fromEntries(RUNNING.map((name) => [name, arrivals(ENDPOINTS[name])]));
 
 export const options = {
   scenarios: SCENARIOS,
@@ -76,18 +86,20 @@ function arrivals(endpoint) {
 
 // k6 reports a tag's own percentiles only for metrics named here; an empty list adds no pass or fail. The two
 // real thresholds decide whether a run counts: under 1% errors, and no dropped iterations (k6 ran out of VUs, so
-// the rate wasn't held)
+// the rate wasn't held). k6 counts a 304 as a success
 function thresholds() {
   const all = {
     'http_req_duration{traffic:measured}': [],
     'http_req_failed{traffic:measured}': ['rate<0.01'],
     'data_received{traffic:measured}': [],
+    'http_reqs{traffic:measured,status:304}': [],
     dropped_iterations: ['count==0'],
   };
-  for (const name of Object.keys(ENDPOINTS)) {
+  for (const name of RUNNING) {
     all[`http_req_duration{traffic:measured,endpoint:${name}}`] = [];
     all[`http_req_failed{traffic:measured,endpoint:${name}}`] = [];
     all[`data_received{traffic:measured,endpoint:${name}}`] = [];
+    all[`http_reqs{traffic:measured,endpoint:${name},status:304}`] = [];
   }
   return all;
 }
@@ -237,8 +249,17 @@ export function productList(data) {
   send('product_list', `/api/v1/products?${category}${where}&pageSize=${PAGE_SIZE}`);
 }
 
+// The ETag this VU last got for each product. Like a browser that kept the page, it sends the ETag back in
+// If-None-Match, and while nothing in the product changed, the answer is a 304 with no body (task R3-09). An API
+// without ETags gives nothing to send back, so against it the requests are the same as before
+const etags = {};
+
 export function productDetails(data) {
-  send('product_details', `/api/v1/products/${data.products[zipf(data.products.length)]}`);
+  const id = data.products[zipf(data.products.length)];
+  const res = send('product_details', `/api/v1/products/${id}`, { etag: etags[id] });
+  if (ETAGS && res.headers.Etag) {
+    etags[id] = res.headers.Etag;
+  }
 }
 
 export function categories() {
@@ -264,7 +285,7 @@ export function createOrder(data) {
 
 let warned = false; // each VU logs its first unexpected answer; the rest only count as errors
 
-function send(endpoint, path, { token, body } = {}) {
+function send(endpoint, path, { token, body, etag } = {}) {
   const { method, route, expect } = ENDPOINTS[endpoint];
   const headers = {};
   if (body) {
@@ -275,16 +296,22 @@ function send(endpoint, path, { token, body } = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
+  if (etag) {
+    headers['If-None-Match'] = etag;
+  }
+
   // VU tags rather than request tags, because k6 counts data_received per VU, not per request. Requests in the
   // warm-up are tagged apart, and every reported number leaves them out
   exec.vu.tags.endpoint = endpoint;
   exec.vu.tags.traffic = Date.now() - exec.scenario.startTime < warmupMs ? 'warmup' : 'measured';
   const res = http.request(method, `${API}${path}`, body || null,
     { headers, timeout: '10s', tags: { name: `${method} ${route}` } });
-  if (res.status !== expect && !warned) {
+  if (res.status !== expect && !(etag && res.status === 304) && !warned) {
     warned = true;
     console.warn(`${endpoint}: expected ${expect}, got ${res.status} ${res.error || ''}`.trim());
   }
+
+  return res;
 }
 
 // Most browsing stops at the first pages; one list request in ten goes deeper, anywhere up to the last page
@@ -342,7 +369,8 @@ export function handleSummary(data) {
 
   const seconds = durationMs / 1000;
   const endpoints = {};
-  for (const [name, endpoint] of Object.entries(ENDPOINTS)) {
+  for (const name of RUNNING) {
+    const endpoint = ENDPOINTS[name];
     endpoints[name] = {
       route: `${endpoint.method} ${endpoint.route}`,
       share: endpoint.share,
@@ -373,7 +401,10 @@ export function handleSummary(data) {
     commit: COMMIT,
     startedAt: setup.startedAt,
     api: API,
-    settings: { rate: RATE, warmup: WARMUP, duration: DURATION, pageSize: PAGE_SIZE, paging: setup.paging },
+    settings: {
+      rate: RATE, warmup: WARMUP, duration: DURATION, pageSize: PAGE_SIZE, paging: setup.paging,
+      etags: ETAGS ? 'on' : 'off', only: ONLY.length > 0 ? RUNNING : null,
+    },
     dataset: {
       categories: setup.lists.length,
       products: setup.products.length,
@@ -406,6 +437,7 @@ function stats(data, tags, seconds) {
   const duration = data.metrics[`http_req_duration${tags}`];
   const failed = data.metrics[`http_req_failed${tags}`];
   const received = data.metrics[`data_received${tags}`];
+  const notModified = data.metrics[`http_reqs${tags.replace(/}$/, ',status:304}')}`];
   const values = duration ? duration.values : {};
   const requests = values.count || 0;
   return {
@@ -417,6 +449,7 @@ function stats(data, tags, seconds) {
     maxMs: round(values.max, 1),
     errorRate: failed ? round(failed.values.rate, 4) : 0,
     bytesReceived: received ? received.values.count : 0,
+    notModified: notModified ? notModified.values.count : 0,
   };
 }
 
@@ -455,6 +488,7 @@ function report(result, file) {
     '',
     `Dropped iterations: ${result.droppedIterations}, VUs: ${result.vus.allocated} allocated `
       + `(${result.vus.preallocated} preallocated, cap ${result.vus.cap}), received: ${(overall.bytesReceived / 1e6).toFixed(1)} MB`,
+    revalidation(result),
     result.valid ? 'Valid run: every threshold passed' : `NOT a valid run: ${result.problems.join('; ')}`,
   ];
   if (dataset.customerSource === 'registered') {
@@ -464,6 +498,14 @@ function report(result, file) {
 
   lines.push(`Saved ${file}`, '');
   return lines.join('\n');
+}
+
+// How many answers were 304s with no body, and what a response cost on average, where any were
+function revalidation(result) {
+  const answered = Object.entries(result.endpoints).filter(([, s]) => s.notModified > 0)
+    .map(([name, s]) => `${name} ${s.notModified} of ${s.requests} (${(s.notModified / s.requests * 100).toFixed(1)}%), `
+      + `${Math.round(s.bytesReceived / s.requests)} bytes a response`);
+  return `ETags ${result.settings.etags}. 304 Not Modified: ${answered.length > 0 ? answered.join('; ') : 'none'}`;
 }
 
 function fixed(value) {
@@ -478,6 +520,19 @@ function positive(name, fallback) {
   }
 
   return value;
+}
+
+function onOff(name, fallback) {
+  const raw = __ENV[name];
+  if (raw === undefined || raw === '') {
+    return fallback;
+  }
+
+  if (raw !== 'on' && raw !== 'off') {
+    throw new Error(`${name} must be on or off, not "${raw}"`);
+  }
+
+  return raw === 'on';
 }
 
 // A duration in k6's own format: 30s, 3m, 1m30s or 500ms; 0 turns the warm-up off

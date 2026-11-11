@@ -1,0 +1,61 @@
+{
+  "label": "etag-off",
+  "commit": "r3-after-db-4-g8fc3670-dirty",
+  "startedAt": "2026-11-11T16:37:21.747Z",
+  "api": "http://localhost:8080",
+  "settings": {
+    "rate": 800,
+    "warmup": "30s",
+    "duration": "3m",
+    "pageSize": 20,
+    "paging": "cursor",
+    "etags": "off",
+    "only": [
+      "product_details"
+    ]
+  },
+  "dataset": {
+    "categories": 20,
+    "products": 5006,
+    "customers": 5,
+    "customerSource": "seeded"
+  },
+  "window": {
+    "measuredFrom": "2026-11-11T16:37:55.253Z",
+    "measuredTo": "2026-11-11T16:40:55.253Z"
+  },
+  "overall": {
+    "requests": 57600,
+    "rps": 320,
+    "p50Ms": 2.2,
+    "p95Ms": 3.7,
+    "p99Ms": 5.7,
+    "maxMs": 25,
+    "errorRate": 0,
+    "bytesReceived": 56315390,
+    "notModified": 0
+  },
+  "endpoints": {
+    "product_details": {
+      "route": "GET /api/v1/products/{id}",
+      "share": 0.4,
+      "requests": 57600,
+      "rps": 320,
+      "p50Ms": 2.2,
+      "p95Ms": 3.7,
+      "p99Ms": 5.7,
+      "maxMs": 25,
+      "errorRate": 0,
+      "bytesReceived": 56315390,
+      "notModified": 0
+    }
+  },
+  "droppedIterations": 0,
+  "vus": {
+    "allocated": 162,
+    "preallocated": 162,
+    "cap": 970
+  },
+  "valid": true,
+  "problems": []
+}

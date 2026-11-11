@@ -35,6 +35,12 @@ namespace Shop.Modules.Products.Data.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Name")
@@ -46,22 +52,26 @@ namespace Shop.Modules.Products.Data.Migrations
                         new
                         {
                             Id = new Guid("019a2180-0000-7000-8000-000000000001"),
-                            Name = "Electronics"
+                            Name = "Electronics",
+                            Version = 0u
                         },
                         new
                         {
                             Id = new Guid("019a2180-0000-7000-8000-000000000002"),
-                            Name = "Clothing"
+                            Name = "Clothing",
+                            Version = 0u
                         },
                         new
                         {
                             Id = new Guid("019a2180-0000-7000-8000-000000000003"),
-                            Name = "Home"
+                            Name = "Home",
+                            Version = 0u
                         },
                         new
                         {
                             Id = new Guid("019a2180-0000-7000-8000-000000000004"),
-                            Name = "Books"
+                            Name = "Books",
+                            Version = 0u
                         });
                 });
 
@@ -101,6 +111,12 @@ namespace Shop.Modules.Products.Data.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)")
                         .HasColumnName("price");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 

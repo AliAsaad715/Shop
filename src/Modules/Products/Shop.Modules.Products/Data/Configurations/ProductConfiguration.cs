@@ -18,6 +18,8 @@ internal sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.Property(product => product.ImagePath).HasColumnName("image_path").HasMaxLength(512).IsRequired();
         builder.Property(product => product.CreatedAt).HasColumnName("created_at");
         builder.Property(product => product.CategoryId).HasColumnName("category_id");
+        // A system column every row already has, so no migration adds it
+        builder.Property(product => product.Version).HasColumnName("xmin").IsRowVersion();
 
         builder.HasOne(product => product.Category)
             .WithMany()

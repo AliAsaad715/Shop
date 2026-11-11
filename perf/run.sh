@@ -6,8 +6,8 @@
 #   perf/run.sh <label> <rate>        e.g. perf/run.sh baseline 200
 #
 # Results go to perf/results/<label>/. RUNS sets how many runs (3); WARMUP, DURATION, CUSTOMER_EMAILS,
-# CUSTOMER_PASSWORD and CUSTOMERS pass through to perf/load.js, with five seeded customers unless set. Needs Docker
-# and jq.
+# CUSTOMER_PASSWORD, CUSTOMERS, ETAGS and ONLY pass through to perf/load.js, with five seeded customers unless set.
+# Needs Docker and jq.
 set -euo pipefail
 set -m # each background job gets its own process group, so stopping a sampler stops everything it started
 cd "$(dirname "$0")/.."
@@ -189,7 +189,7 @@ snapshot=$(app_sql -c "SELECT shobj_description(oid, 'pg_database') FROM pg_data
 names=$(docker compose ps --format json | jq -s --arg k6 "$K6_CONTAINER" 'flatten | map({(.Name): .Service}) | add + {($k6): "k6"}')
 
 k6_env=(-e "API_URL=$api" -e "RATE=$rate" -e "LABEL=$label" -e "COMMIT=$commit" -e "RESULTS_DIR=$dir")
-for name in WARMUP DURATION CUSTOMER_EMAILS CUSTOMER_PASSWORD CUSTOMERS; do
+for name in WARMUP DURATION CUSTOMER_EMAILS CUSTOMER_PASSWORD CUSTOMERS ETAGS ONLY; do
   if [[ -n ${!name:-} ]]; then
     k6_env+=(-e "$name=${!name}")
   fi

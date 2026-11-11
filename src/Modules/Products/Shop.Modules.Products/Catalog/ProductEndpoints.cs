@@ -24,8 +24,10 @@ internal static class ProductEndpoints
         endpoints.MapGet("/products/{id}", GetAsync)
             .WithName("GetProduct")
             .WithTags("Products")
-            .WithSummary("Get a product, its image URL and its stock from the warehouse (stockStatus unknown when the warehouse can't answer)")
+            .WithSummary("Get a product, its image URL and its stock from the warehouse (stockStatus unknown when the warehouse can't answer). "
+                + "Send its ETag back in If-None-Match to get a 304 with no body while nothing in it has changed")
             .AllowAnonymous()
+            .Produces(StatusCodes.Status304NotModified)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         endpoints.MapGet("/categories", CategoriesAsync)
@@ -72,17 +74,30 @@ internal static class ProductEndpoints
     private static IOrderedQueryable<Product> Newest(IQueryable<Product> products) =>
         products.OrderByDescending(product => product.CreatedAt).ThenByDescending(product => product.Id);
 
-    public static async Task<Results<Ok<ProductDetailsResponse>, ProblemHttpResult>> GetAsync(
-        Guid id, ProductsDbContext context, IInventoryService inventory, CancellationToken ct)
+    public static async Task<Results<Ok<ProductDetailsResponse>, StatusCodeHttpResult, ProblemHttpResult>> GetAsync(
+        Guid id, ProductsDbContext context, IInventoryService inventory, HttpRequest request, HttpResponse response,
+        CancellationToken ct)
     {
-        var product = await Responses(context.Products.AsNoTracking().Where(product => product.Id == id)).SingleOrDefaultAsync(ct);
-        if (product is null)
+        var found = await Versioned(context.Products.AsNoTracking().Where(product => product.Id == id)).SingleOrDefaultAsync(ct);
+        if (found is null)
         {
             return Problems.Create(StatusCodes.Status404NotFound, ErrorCodes.Products.NotFound, "Product not found");
         }
 
         var (stockStatus, available) = await StockAsync(inventory, id, ct);
-        return TypedResults.Ok(ProductDetailsResponse.From(product, stockStatus, available));
+
+        // The client may keep the response but must check with us every time (no-cache), and while nothing in it has
+        // changed, that check is a 304 with no body; both carry the ETag (task R3-09). The database and the warehouse
+        // are still asked: a 304 saves the transfer and the serialization, not the reads
+        var etag = ProductETag.For(found.Version, found.CategoryVersion, available);
+        response.Headers.ETag = etag.ToString();
+        response.Headers.CacheControl = "no-cache";
+        if (ProductETag.Matches(request.GetTypedHeaders().IfNoneMatch, etag))
+        {
+            return TypedResults.StatusCode(StatusCodes.Status304NotModified);
+        }
+
+        return TypedResults.Ok(ProductDetailsResponse.From(found.Product, stockStatus, available));
     }
 
     // A warehouse that is down or slow costs the page its stock count, never the page itself;
@@ -111,6 +126,16 @@ internal static class ProductEndpoints
         products.Select(product => new ProductResponse(
             product.Id, product.Name, product.Description, product.Price, ImageUrl(product.ImagePath),
             product.CategoryId, product.Category.Name, product.CreatedAt));
+
+    // The same response as Responses, with the row versions the details' ETag is built from, in the same query
+    private static IQueryable<VersionedProduct> Versioned(IQueryable<Product> products) =>
+        products.Select(product => new VersionedProduct(
+            new ProductResponse(
+                product.Id, product.Name, product.Description, product.Price, ImageUrl(product.ImagePath),
+                product.CategoryId, product.Category.Name, product.CreatedAt),
+            product.Version, product.Category.Version));
+
+    private sealed record VersionedProduct(ProductResponse Product, uint Version, uint CategoryVersion);
 
     // Stored paths are relative to the image root; task 15 provides storage and serving at /images.
     private static string ImageUrl(string imagePath) =>
