@@ -11,6 +11,7 @@ using Shop.Modules.Products.Catalog;
 using Shop.Modules.Products.Domain;
 using Shop.Modules.Products.Images;
 using Shop.SharedKernel.Errors;
+using Shop.SharedKernel.Persistence;
 
 namespace Shop.Modules.Products.Creation;
 
@@ -32,7 +33,8 @@ internal static class CreateProductEndpoint
 
     public static async Task<Results<Created<CreatedProductResponse>, ProblemHttpResult>> HandleAsync(
         [FromForm] CreateProductRequest request, ProductsDbContext context, IImageStorage images,
-        HttpContext httpContext, ILogger<IImageStorage> logger, CatalogCacheInvalidator cache, CancellationToken ct)
+        HttpContext httpContext, ILogger<IImageStorage> logger, CatalogCacheInvalidator cache,
+        DatabaseReadRouter routing, CancellationToken ct)
     {
         var file = request.Image!;
         if (file.Length > ImageUploadLimits.ImageBytes)
@@ -97,6 +99,7 @@ internal static class CreateProductEndpoint
             throw;
         }
 
+        await routing.MarkWrittenAsync();
         await cache.ProductChangedAsync(product.Id, null, category.Id);
 
         var location = $"{httpContext.Request.PathBase}{httpContext.Request.Path.ToString().TrimEnd('/')}/{product.Id}";

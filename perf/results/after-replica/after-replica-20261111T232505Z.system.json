@@ -1,0 +1,231 @@
+{
+  "label": "after-replica",
+  "run": 2,
+  "result": "after-replica-20261111T232505Z.json",
+  "commit": "r3-after-read-routing",
+  "snapshot": "saved 2026-11-11T16:40:17Z at r3-before-redis",
+  "window": {
+    "measuredFrom": "2026-11-11T23:25:39.059Z",
+    "measuredTo": "2026-11-11T23:28:39.059Z"
+  },
+  "sampleSeconds": 2,
+  "cpu": {
+    "cores": 12,
+    "containers": {
+      "api": {
+        "avgPercent": 47.7,
+        "maxPercent": 51.9
+      },
+      "db-replica": {
+        "avgPercent": 4.4,
+        "maxPercent": 10.7
+      },
+      "inventory": {
+        "avgPercent": 9.5,
+        "maxPercent": 11.6
+      },
+      "inventory-db": {
+        "avgPercent": 3.7,
+        "maxPercent": 8.1
+      },
+      "k6": {
+        "avgPercent": 16.1,
+        "maxPercent": 27.1
+      },
+      "postgres": {
+        "avgPercent": 6.1,
+        "maxPercent": 10.3
+      },
+      "redis": {
+        "avgPercent": 1.2,
+        "maxPercent": 2.5
+      }
+    }
+  },
+  "database": {
+    "maxConnections": 4,
+    "avgActive": 0,
+    "maxActive": 0,
+    "maxWaiting": 0,
+    "waitEvents": {}
+  },
+  "topQueries": [
+    {
+      "calls": 3918,
+      "totalMs": 733.7,
+      "meanMs": 0.187,
+      "rows": 3918,
+      "share": 0.2624,
+      "query": "SELECT count(*)::int FROM orders.orders AS o WHERE o.customer_id = $1"
+    },
+    {
+      "calls": 3486,
+      "totalMs": 504.3,
+      "meanMs": 0.145,
+      "rows": 69577,
+      "share": 0.1803,
+      "query": "SELECT o.id, o.customer_id, o.status, o.total, ( SELECT COALESCE(sum(o0.quantity), $4)::int FROM orders.order_lines AS o0 WHERE o.id = o0.order_id), o.created_at, o.updated_at FROM orders.orders AS o WHERE o.customer_id = $1 ORDER BY o.created_at DESC, o.id DESC LIMIT $2 OFFSET $3"
+    },
+    {
+      "calls": 3919,
+      "totalMs": 462.1,
+      "meanMs": 0.118,
+      "rows": 3919,
+      "share": 0.1652,
+      "query": "INSERT INTO orders.order_lines (id, line_total, order_id, product_id, product_name, quantity, unit_price) VALUES ($1, $2, $3, $4, $5, $6, $7)"
+    },
+    {
+      "calls": 14928,
+      "totalMs": 251.4,
+      "meanMs": 0.017,
+      "rows": 0,
+      "share": 0.0899,
+      "query": "DISCARD ALL"
+    },
+    {
+      "calls": 1964,
+      "totalMs": 197.9,
+      "meanMs": 0.101,
+      "rows": 1964,
+      "share": 0.0708,
+      "query": "INSERT INTO orders.orders (id, created_at, customer_id, status, total, updated_at, version) VALUES ($1, $2, $3, $4, $5, $6, $7)"
+    },
+    {
+      "calls": 1964,
+      "totalMs": 194.0,
+      "meanMs": 0.099,
+      "rows": 1964,
+      "share": 0.0694,
+      "query": "INSERT INTO orders.order_status_history (id, changed_at, changed_by, from_status, order_id, to_status) VALUES ($1, $2, $3, $4, $5, $6)"
+    },
+    {
+      "calls": 432,
+      "totalMs": 137.0,
+      "meanMs": 0.317,
+      "rows": 8404,
+      "share": 0.0490,
+      "query": "SELECT o.id, o.customer_id, o.status, o.total, ( SELECT COALESCE(sum(o0.quantity), $3)::int FROM orders.order_lines AS o0 WHERE o.id = o0.order_id), o.created_at, o.updated_at FROM orders.orders AS o WHERE o.customer_id = $1 ORDER BY o.created_at DESC, o.id DESC LIMIT $2 OFFSET $2"
+    },
+    {
+      "calls": 2824,
+      "totalMs": 117.0,
+      "meanMs": 0.041,
+      "rows": 2824,
+      "share": 0.0418,
+      "query": "SELECT p.id, p.name, p.description, p.price, p.image_path, p.category_id, c.name, p.created_at, p.xmin, c.xmin FROM products.products AS p INNER JOIN products.categories AS c ON p.category_id = c.id WHERE p.id = $1 LIMIT $2"
+    },
+    {
+      "calls": 1964,
+      "totalMs": 80.9,
+      "meanMs": 0.041,
+      "rows": 3919,
+      "share": 0.0289,
+      "query": "SELECT p.id, p.name, p.price FROM products.products AS p WHERE p.id = ANY ($1)"
+    },
+    {
+      "calls": 120,
+      "totalMs": 54.7,
+      "meanMs": 0.456,
+      "rows": 3600,
+      "share": 0.0196,
+      "query": "SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p WHERE p.category_id = $1 ORDER BY p.created_at DESC, p.id DESC LIMIT $2 OFFSET $3 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id DESC"
+    }
+  ],
+  "replica": {
+    "database": {
+      "maxConnections": 3,
+      "avgActive": 0,
+      "maxActive": 1,
+      "maxWaiting": 0,
+      "waitEvents": {}
+    },
+    "topQueries": [
+      {
+        "calls": 5890,
+        "totalMs": 875.4,
+        "meanMs": 0.149,
+        "rows": 122660,
+        "share": 0.7066,
+        "query": "SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p WHERE p.category_id = $1 AND (p.created_at, p.id) < ($2, $3) ORDER BY p.created_at DESC, p.id DESC LIMIT $4 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id DESC"
+      },
+      {
+        "calls": 6851,
+        "totalMs": 130.0,
+        "meanMs": 0.019,
+        "rows": 0,
+        "share": 0.1049,
+        "query": "DISCARD ALL"
+      },
+      {
+        "calls": 838,
+        "totalMs": 107.8,
+        "meanMs": 0.129,
+        "rows": 17583,
+        "share": 0.0870,
+        "query": "SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p WHERE (p.created_at, p.id) < ($1, $2) ORDER BY p.created_at DESC, p.id DESC LIMIT $3 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id DESC"
+      },
+      {
+        "calls": 51,
+        "totalMs": 53.6,
+        "meanMs": 1.050,
+        "rows": 2006,
+        "share": 0.0432,
+        "query": "SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p WHERE p.category_id = $1 ORDER BY p.created_at DESC, p.id DESC LIMIT $2 OFFSET $3 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id DESC"
+      },
+      {
+        "calls": 2,
+        "totalMs": 22.1,
+        "meanMs": 11.074,
+        "rows": 40,
+        "share": 0.0179,
+        "query": "SELECT o.id, o.customer_id, o.status, o.total, ( SELECT COALESCE(sum(o0.quantity), $3)::int FROM orders.order_lines AS o0 WHERE o.id = o0.order_id), o.created_at, o.updated_at FROM orders.orders AS o WHERE o.customer_id = $1 ORDER BY o.created_at DESC, o.id DESC LIMIT $2 OFFSET $2"
+      },
+      {
+        "calls": 10,
+        "totalMs": 16.9,
+        "meanMs": 1.686,
+        "rows": 144,
+        "share": 0.0136,
+        "query": "SELECT o.id, o.customer_id, o.status, o.total, ( SELECT COALESCE(sum(o0.quantity), $4)::int FROM orders.order_lines AS o0 WHERE o.id = o0.order_id), o.created_at, o.updated_at FROM orders.orders AS o WHERE o.customer_id = $1 ORDER BY o.created_at DESC, o.id DESC LIMIT $2 OFFSET $3"
+      },
+      {
+        "calls": 1,
+        "totalMs": 13.4,
+        "meanMs": 13.391,
+        "rows": 172,
+        "share": 0.0108,
+        "query": "SELECT ns.nspname, t.oid, t.typname, t.typtype, t.typnotnull, t.elemtypoid FROM ( -- Arrays have typtype=b - this subquery identifies them by their typreceive and converts their typtype to a -- We first do this for the type (innerest-most subquery), and then for its element type -- This also returns the array element, range subtype and domain base type as elemtypoid SELECT typ.oid, typ.typnamespace, typ.typname, typ.typtype, typ.typrelid, typ.typnotnull, typ.relkind, elemtyp.oid AS elemtypoid, elemtyp.typname AS elemtypname, elemcls.relkind AS elemrelkind, CASE WHEN elemproc.proname=$1 THEN $2 ELSE elemtyp.typtype END AS elemtyptype , typ.typcategory FROM ( SELECT typ.oid, typnamespace, typname, typrelid, typnotnull, relkind, typelem AS elemoid, CASE WHEN proc.proname=$3 THEN $4 ELSE typ.typtype END AS typtype, CASE WHEN proc.proname=$5 THEN typ.typelem WHEN typ.typtype=$6 THEN rngsubtype WHEN typ.typtype=$7 THEN (SELECT rngtypid FROM pg_range WHERE rngmultitypid = typ.oid) WHEN typ.typtype=$8 THEN typ.typbasetype END AS elemtypoid , typ.typcategory FROM pg_type AS typ LEFT JOIN pg_class AS cls ON (cls.oid = typ.typrelid) LEFT JOIN pg_proc AS proc ON proc.oid = typ.typreceive LEFT JOIN pg_range ON (pg_range.rngtypid = typ.oid) ) AS typ LEFT JOIN pg_type AS elemtyp ON elemtyp.oid = elemtypoid LEFT JOIN pg_class AS elemcls ON (elemcls.oid = elemtyp.typrelid) LEFT JOIN pg_proc AS elemproc ON elemproc.oid = elemtyp.typreceive ) AS t JOIN pg_namespace AS ns ON (ns.oid = typnamespace) WHERE (typtype IN ($9 /*, ... */) OR -- Base, range, multirange, enum, domain (typtype = $10 AND relkind=$11) OR -- User-defined free-standing composites (not table composites) by default (typtype = $12 AND typname IN ($13 /*, ... */)) OR -- Some special supported pseudo-types (typtype = $14 AND ( -- Array of... elemtyptype IN ($15 /*, ... */) OR -- Array of base, range, multirange, enum, domain (elemtyptype = $16 AND elemtypname IN ($17 /*, ... */)) OR -- Arrays of special supported pseudo-types (elemtyptype = $18 AND elemrelkind=$19) -- Array of user-defined free-standing composites (not table composites) by default ))) ORDER BY CASE WHEN typtype IN ($20 /*, ... */) THEN $21 -- First base types, enums, pseudo-types WHEN typtype = $22 THEN $23 -- Composites after (fields loaded later in 2nd pass) WHEN typtype = $24 THEN $25 -- Ranges after WHEN typtype = $26 THEN $27 -- Multiranges after WHEN typtype = $28 AND elemtyptype <> $29 THEN $30 -- Domains over non-arrays after WHEN typtype = $31 THEN $32 -- Arrays after WHEN typtype = $33 AND elemtyptype = $34 THEN $35 -- Domains over arrays last END"
+      },
+      {
+        "calls": 12,
+        "totalMs": 10.3,
+        "meanMs": 0.859,
+        "rows": 12,
+        "share": 0.0083,
+        "query": "SELECT count(*)::int FROM orders.orders AS o WHERE o.customer_id = $1"
+      },
+      {
+        "calls": 51,
+        "totalMs": 8.6,
+        "meanMs": 0.169,
+        "rows": 51,
+        "share": 0.0070,
+        "query": "SELECT count(*)::int FROM products.products AS p WHERE p.category_id = $1"
+      },
+      {
+        "calls": 84,
+        "totalMs": 0.3,
+        "meanMs": 0.004,
+        "rows": 84,
+        "share": 0.0003,
+        "query": "SELECT pg_is_in_recovery()"
+      }
+    ]
+  },
+  "redis": {
+    "hits": 12432,
+    "misses": 5997,
+    "hitRatio": 0.675
+  },
+  "notes": []
+}

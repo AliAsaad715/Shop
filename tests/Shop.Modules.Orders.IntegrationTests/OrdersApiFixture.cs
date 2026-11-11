@@ -56,6 +56,7 @@ public class OrdersApiFixture : IAsyncLifetime
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:Shop"] = connectionString,
+            ["ReadRouting:Enabled"] = "false",
             // The tests run each pass themselves; the background worker never wakes during a run
             ["Orders:PendingReleases:PollInterval"] = "01:00:00",
         });

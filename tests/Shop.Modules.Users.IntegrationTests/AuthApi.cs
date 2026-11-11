@@ -53,6 +53,7 @@ public sealed class AuthApi : IAsyncLifetime
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:Shop"] = connectionString,
+            ["ReadRouting:Enabled"] = "false",
             ["Jwt:SigningKey"] = SigningKey,
             ["Jwt:Issuer"] = "shop",
             ["Jwt:Audience"] = "shop-api",

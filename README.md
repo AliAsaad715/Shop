@@ -446,7 +446,7 @@ nothing changing, 45% of the views came back as 304s, and the data received fell
 
 ## Read replica (task R3-10)
 
-`db-replica` is a streaming replica of `postgres`, for the reads that may be a moment old, which R3-11 sends to it.
+`db-replica` is a streaming replica of `postgres`, for the reads that may be a moment old when R3-11 routing is enabled.
 It runs only with its profile, so the default stack, and every step measured before R3-11, runs without it:
 
 ```sh
@@ -487,6 +487,61 @@ and `perf/run.sh` and `perf/compare.sh` report its CPU with the other containers
 The replica must allow at least as many connections as the primary (and a few other limits), or it won't start;
 both keep the image's defaults. On one laptop a replica adds no hardware, so no speed-up is expected from it: its
 value is spreading reads over machines and keeping heavy reads off the primary.
+
+## Read routing and read-your-writes (task R3-11)
+
+Read routing is opt-in: set `READ_ROUTING_ENABLED=true` in Compose and start with
+`docker compose --profile replica up -d --build --wait`. It is off by default, so existing deployments and tests
+keep using `ConnectionStrings:Shop`. Enable it only after R3-10's replica has copied the primary.
+
+| Operation | Database/cache |
+| --- | --- |
+| Writes, startup migrations, seeders and pending-release work | Primary |
+| Login, registration, roles and current-user reads | Primary |
+| Order creation's current-price catalog contract | Primary |
+| Catalog cache hits | Existing L1/Redis; a recent writer bypasses both |
+| Any catalog cache fill, including categories and numbered pages | Primary |
+| Uncached catalog reads: cursor pages, numbered page 4+, or cache disabled | Prefer replica |
+| Customer/admin order lists and order details | Prefer replica, with existing ownership filters |
+| Any routed read by a recent writer, or an authenticated read whose marker cannot be checked | Primary |
+
+`ConnectionStrings:ShopRead` lists `db-replica,postgres` with `Target Session Attributes=prefer-standby`.
+[Npgsql's host selection](https://www.npgsql.org/doc/failover-and-load-balancing.html) falls back to the primary
+when no standby is available. An eligible read that loses a pooled replica connection is retried once, in full,
+on a new primary context. Cancellation and non-transient database errors still propagate; writes are never retried
+by this read path. The normal module context always remains the primary/write context.
+
+After product creation/edit or order creation/status change commits, the API records logical key `rw:{userId}`
+in Redis, under the existing `shop:r3:v2:` prefix. `ReadRouting:PrimaryWindow` defaults to ten seconds, configurable
+as `READ_YOUR_WRITES_WINDOW=00:00:10` in Compose. Every successful write refreshes it. Reads check Redis directly,
+so a second API host sees the pin too; there is no local cache of a missing marker. Pinned catalog requests bypass
+even a warm L1 and read primary metadata, while stock is still fetched live from the warehouse.
+
+Marking has an independent two-second timeout after commit, and a failure is logged without failing the saved
+write. The writer host also retains a local pin for the same window, covering a failed Redis write followed by
+recovery. If Redis cannot answer a marker lookup, authenticated routed reads choose the primary. A failed marker
+write is not durable across hosts or restarts: once Redis recovers, another host cannot recover that missing pin.
+This is a bounded consistency window, not a guarantee for replication lag longer than the configured window.
+
+For local `dotnet run`, configure `ReadRouting__Enabled=true` and a read connection such as
+`Host=localhost:5434,localhost:5433;Database=shop;Username=shop;Password=shop;Target Session Attributes=prefer-standby;Timeout=2;Host Recheck Seconds=5`,
+plus the existing Redis address. The default local connection remains primary-only. Enabling routing requires
+both `ConnectionStrings:ShopRead` and `ConnectionStrings:Redis`, and a positive primary window.
+
+To see the stale-read problem, start the profile with `REPLICA_APPLY_DELAY=5s` (demos only) and routing enabled.
+Place an order as a Customer, then immediately GET `/api/v1/orders` and its Location with the same token: both
+show the order through the primary pin. Querying that order's ID directly on `db-replica` still shows no row until
+replay catches up. `perf/replica-lag.sh` shows the lag. Restore `REPLICA_APPLY_DELAY=0` after the demo.
+
+`ReadRoutingTests` uses an isolated primary, a physical `pg_basebackup` standby, Redis and two real API hosts with
+JWT authentication. Pausing WAL replay proves replica reads, primary-only cache fills, a writer's immediate
+read across hosts, expiry back to stale replica reads, order ownership, current prices, primary-only identity,
+replica failure and Redis failure. The tests leave the developer's Compose databases and snapshots alone.
+
+The matched 200 req/s experiment has three valid runs per phase: primary PostgreSQL CPU fell from 8.8% to 6.5%
+of one core, while overall p95 increased from 9.9 to 10.3 ms. The
+[results and five-second lag proof](perf/results/after-replica/README.md) explain that tradeoff;
+[comparison.replica.md](perf/results/comparison.replica.md) isolates these two tagged versions.
 
 ## Verify
 

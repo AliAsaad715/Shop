@@ -1,0 +1,16 @@
+{
+  "applyDelay": "5s",
+  "primaryWindow": "10s",
+  "orderId": "01a1ccfa-76aa-7e0b-87f1-686faf00c8bb",
+  "productId": "019a2180-0000-7000-8000-000000000206",
+  "apiListContainsOrderImmediately": true,
+  "apiDetailStatus": 200,
+  "replicaRowsAtFirstCheck": 0,
+  "firstCheckSeconds": 0.57,
+  "replicaRowsAfterReplay": 1,
+  "observedReplaySeconds": 5.19,
+  "inventory": "real Compose Go warehouse",
+  "routing": "enabled",
+  "note": "The writer saw its order through primary while the deliberately delayed physical standby still had no row. This proof ran after all performance measurements.",
+  "restoredApplyDelay": "0"
+}

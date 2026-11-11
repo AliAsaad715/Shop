@@ -10,6 +10,7 @@ using Shop.Modules.Orders.Releases;
 using Shop.Modules.Products.Contracts;
 using Shop.SharedKernel.Auth;
 using Shop.SharedKernel.Errors;
+using Shop.SharedKernel.Persistence;
 
 namespace Shop.Modules.Orders.Placement;
 
@@ -36,7 +37,8 @@ internal static class CreateOrderEndpoint
     /// </summary>
     public static async Task<Results<Created<OrderResponse>, ProblemHttpResult>> HandleAsync(
         CreateOrderRequest request, OrdersDbContext context, ICurrentUser currentUser, IProductCatalog catalog,
-        IInventoryService inventory, ReservationReleaser releaser, TimeProvider time, HttpContext httpContext, CancellationToken ct)
+        IInventoryService inventory, ReservationReleaser releaser, TimeProvider time, HttpContext httpContext,
+        DatabaseReadRouter routing, CancellationToken ct)
     {
         if (currentUser.UserId is not { } customerId)
         {
@@ -114,6 +116,7 @@ internal static class CreateOrderEndpoint
             throw;
         }
 
+        await routing.MarkWrittenAsync();
         var location = $"{httpContext.Request.PathBase}{httpContext.Request.Path.ToString().TrimEnd('/')}/{order.Id}";
         return TypedResults.Created(location, OrderResponse.From(order));
     }

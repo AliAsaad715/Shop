@@ -8,6 +8,7 @@ using Shop.Modules.Products.Catalog;
 using Shop.Modules.Products.Data;
 using Shop.SharedKernel.Auth;
 using Shop.SharedKernel.Errors;
+using Shop.SharedKernel.Persistence;
 
 namespace Shop.Modules.Products.Updates;
 
@@ -30,7 +31,7 @@ internal static class UpdateProductEndpoint
 
     public static async Task<Results<NoContent, ProblemHttpResult>> HandleAsync(
         Guid id, UpdateProductRequest request, ProductsDbContext context, CatalogCacheInvalidator cache,
-        HttpResponse response, CancellationToken ct)
+        HttpResponse response, DatabaseReadRouter routing, CancellationToken ct)
     {
         response.Headers.CacheControl = "no-store";
         // Read the tracked row from the primary, never from the catalog cache. Its xmin protects the save.
@@ -63,6 +64,7 @@ internal static class UpdateProductEndpoint
         }
 
         // The commit succeeded: use the invalidator's independent timeout even if the client disconnects.
+        await routing.MarkWrittenAsync();
         await cache.ProductChangedAsync(product.Id, oldCategoryId, product.CategoryId);
         return TypedResults.NoContent();
     }

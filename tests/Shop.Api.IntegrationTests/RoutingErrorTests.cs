@@ -50,6 +50,7 @@ public sealed class RoutingApi : IAsyncLifetime
             ["LoginRateLimit:WindowSeconds"] = "60",
             // A valid provider configuration is needed to construct Identity; these tests never query it.
             ["ConnectionStrings:Shop"] = "Host=127.0.0.1;Database=unused_routing_test;Username=postgres",
+            ["ReadRouting:Enabled"] = "false",
         });
         builder.Services.AddUsersModule();
         builder.Services.AddVersionedApiDocs();

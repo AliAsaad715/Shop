@@ -111,6 +111,7 @@ public sealed class CatalogCacheFixture : IAsyncLifetime
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:Shop"] = _postgres.GetConnectionString(),
+            ["ReadRouting:Enabled"] = "false",
             ["ConnectionStrings:Redis"] = $"{_redis.Hostname}:{_redis.GetMappedPublicPort(6379)}",
             ["CatalogCache:Enabled"] = "true",
             ["CatalogCache:ProductTtl"] = "00:10:00", ["CatalogCache:CategoriesTtl"] = "01:00:00",

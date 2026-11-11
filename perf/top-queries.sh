@@ -11,10 +11,11 @@
 # "postgres", not the app's, so the app's schema and the seeded snapshot stay as they are.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+DATABASE_SERVICE=${DATABASE_SERVICE:-postgres}
 
 # psql on the maintenance database; the psql variable app names the app's database
 sql() {
-  docker compose exec -T postgres sh -c 'export PGOPTIONS="-c client_min_messages=warning"
+  docker compose --profile replica exec -T "$DATABASE_SERVICE" sh -c 'export PGOPTIONS="-c client_min_messages=warning"
     exec psql -X -q -At -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -v app="$POSTGRES_DB" "$@"' sh "$@"
 }
 
@@ -26,7 +27,12 @@ prepare() {
     exit 1
   fi
 
-  sql -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements'
+  if [[ $DATABASE_SERVICE == postgres ]]; then
+    sql -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements'
+  elif [[ $(sql -c "SELECT count(*) FROM pg_extension WHERE extname = 'pg_stat_statements'") != 1 ]]; then
+    echo "Create pg_stat_statements on the primary and wait for it to replay before inspecting the replica" >&2
+    exit 1
+  fi
 }
 
 # The app's statements, ranked by total time. The perf tools' own queries, which read the statistics views, are left

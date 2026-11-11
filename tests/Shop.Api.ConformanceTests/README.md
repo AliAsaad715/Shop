@@ -23,3 +23,20 @@ Task 13 supplies the production security headers, CSP, HSTS and cache policy. Al
 run without filters or skipped tests. Additional host integration tests cover exact CORS
 origins, preflight requests, headers on 429/500 responses, actual Bearer cache behavior on
 routing errors, and HTTPS redirects.
+
+## Replica routing (R3-11)
+
+`ReadRoutingTests` has its own isolated primary, a physical streaming standby copied with `pg_basebackup`, Redis,
+and two real Shop.Api hosts using valid signed JWTs and the production authorization policies. It always requires
+Docker; `SHOP_CONFORMANCE_TEST_CONNECTION` does not replace these databases. The warehouse boundary is a stub.
+
+Pausing WAL replay proves eligible replica reads, primary-only cache fills and Identity/current-price reads,
+cross-host read-your-writes pins and expiry, bypass of another host's warm L1, preserved order ownership, and
+fallback after a pooled replica connection fails. Product/order creation and edits pin only after a successful save;
+failed database writes do not create a marker. Redis failure sends authenticated reads to primary and cannot
+turn a committed write into a failed response. Test replay barriers wait for the primary's inserted WAL position,
+including when the test database uses asynchronous commit. No developer Compose data or performance snapshots
+are modified by this fixture.
+
+Legacy test hosts explicitly disable routing so developer environment variables cannot change their primary-only
+query assertions. The R3-11 fixture enables it explicitly and exercises both database paths.
