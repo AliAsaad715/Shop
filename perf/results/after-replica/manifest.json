@@ -1,0 +1,28 @@
+{
+  "beforeTag": "r3-before-read-routing",
+  "beforeCommit": "c36f81fd1a7668d890a589da3e234d6c4a868b50",
+  "beforeBinarySourceTag": "r3-before-routing",
+  "beforeBinarySourceCommit": "ea82044d64c6c9cb0726d44cff313194444b462d",
+  "beforeImage": "sha256:10fdeee71ef489cc48f1e3457c8b6f6506842969f49c1202e471786f9776b239",
+  "beforeRoutingEnabled": false,
+  "afterTag": "r3-after-read-routing",
+  "afterCommit": "28c16617d66ef49467b2fb6a61d39763235f9e2a",
+  "afterImage": "sha256:c6b6ce4aed9faea4f4a81a815633884c961111e2f3adcedabb800884e0d23161",
+  "sdk": "10.0.115",
+  "runtimeImage": "mcr.microsoft.com/dotnet/aspnet@sha256:bfd912c83295ce66d4b706ebb8541b9f14259b0e76fbb88b2751f58ce2399d2e",
+  "dockerCpus": 12,
+  "dockerMemoryBytes": 4031959040,
+  "environment": "Production",
+  "afterRoutingEnabled": true,
+  "primaryWindow": "00:00:10",
+  "catalogCacheEnabled": true,
+  "replica": {
+    "inRecovery": true,
+    "applyDelay": "0"
+  },
+  "rate": 200,
+  "warmup": "30s",
+  "duration": "3m",
+  "runsPerPhase": 3,
+  "note": "The before tag adds only performance instrumentation to the same application source used by the before binary. Both phases used the same cached ASP.NET runtime and local SDK."
+}

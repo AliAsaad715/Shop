@@ -121,6 +121,7 @@ public sealed class DemoSeedFixture : IAsyncLifetime
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:Shop"] = connectionString,
+            ["ReadRouting:Enabled"] = "false",
             ["CatalogCache:Enabled"] = "false",
             ["Images:RootPath"] = ImageRoot,
             ["DemoSeed:Enabled"] = "true",

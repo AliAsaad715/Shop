@@ -538,6 +538,11 @@ JWT authentication. Pausing WAL replay proves replica reads, primary-only cache 
 read across hosts, expiry back to stale replica reads, order ownership, current prices, primary-only identity,
 replica failure and Redis failure. The tests leave the developer's Compose databases and snapshots alone.
 
+The matched 200 req/s experiment has three valid runs per phase: primary PostgreSQL CPU fell from 8.8% to 6.5%
+of one core, while overall p95 increased from 9.9 to 10.3 ms. The
+[results and five-second lag proof](perf/results/after-replica/README.md) explain that tradeoff;
+[comparison.replica.md](perf/results/comparison.replica.md) isolates these two tagged versions.
+
 ## Verify
 
 ```sh

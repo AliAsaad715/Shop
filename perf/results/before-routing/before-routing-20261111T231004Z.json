@@ -1,0 +1,111 @@
+{
+  "label": "before-routing",
+  "commit": "r3-before-read-routing",
+  "startedAt": "2026-11-11T23:10:04.889Z",
+  "api": "http://localhost:8080",
+  "settings": {
+    "rate": 200,
+    "warmup": "30s",
+    "duration": "3m",
+    "pageSize": 20,
+    "paging": "cursor",
+    "etags": "on",
+    "only": null
+  },
+  "dataset": {
+    "categories": 20,
+    "products": 5006,
+    "customers": 5,
+    "customerSource": "seeded"
+  },
+  "window": {
+    "measuredFrom": "2026-11-11T23:10:38.394Z",
+    "measuredTo": "2026-11-11T23:13:38.394Z"
+  },
+  "overall": {
+    "requests": 36004,
+    "rps": 200,
+    "p50Ms": 2.4,
+    "p95Ms": 10,
+    "p99Ms": 13.8,
+    "maxMs": 34.5,
+    "errorRate": 0,
+    "bytesReceived": 196036327,
+    "notModified": 711
+  },
+  "endpoints": {
+    "product_list": {
+      "route": "GET /api/v1/products",
+      "share": 0.4,
+      "requests": 14401,
+      "rps": 80,
+      "p50Ms": 1.4,
+      "p95Ms": 3.7,
+      "p99Ms": 5.1,
+      "maxMs": 15.6,
+      "errorRate": 0,
+      "bytesReceived": 158677936,
+      "notModified": 0
+    },
+    "product_details": {
+      "route": "GET /api/v1/products/{id}",
+      "share": 0.4,
+      "requests": 14401,
+      "rps": 80,
+      "p50Ms": 2.5,
+      "p95Ms": 4.5,
+      "p99Ms": 6.3,
+      "maxMs": 26,
+      "errorRate": 0,
+      "bytesReceived": 13598877,
+      "notModified": 711
+    },
+    "categories": {
+      "route": "GET /api/v1/categories",
+      "share": 0.05,
+      "requests": 1800,
+      "rps": 10,
+      "p50Ms": 0.9,
+      "p95Ms": 1.4,
+      "p99Ms": 3,
+      "maxMs": 8.3,
+      "errorRate": 0,
+      "bytesReceived": 2890800,
+      "notModified": 0
+    },
+    "my_orders": {
+      "route": "GET /api/v1/orders",
+      "share": 0.1,
+      "requests": 3601,
+      "rps": 20,
+      "p50Ms": 3.5,
+      "p95Ms": 5.7,
+      "p99Ms": 7.8,
+      "maxMs": 27.9,
+      "errorRate": 0,
+      "bytesReceived": 18854615,
+      "notModified": 0
+    },
+    "create_order": {
+      "route": "POST /api/v1/orders",
+      "share": 0.05,
+      "requests": 1801,
+      "rps": 10,
+      "p50Ms": 12.1,
+      "p95Ms": 16.6,
+      "p99Ms": 20,
+      "maxMs": 34.5,
+      "errorRate": 0,
+      "bytesReceived": 2014099,
+      "notModified": 0
+    }
+  },
+  "droppedIterations": 0,
+  "vus": {
+    "allocated": 110,
+    "preallocated": 110,
+    "cap": 650
+  },
+  "valid": true,
+  "problems": []
+}

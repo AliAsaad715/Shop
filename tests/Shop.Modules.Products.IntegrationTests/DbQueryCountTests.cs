@@ -150,6 +150,7 @@ public sealed class DbQueryCountFixture : IAsyncLifetime
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:Shop"] = connectionString,
+            ["ReadRouting:Enabled"] = "false",
             ["CatalogCache:Enabled"] = "false",
             // Required at startup; the warehouse itself is StockInventory below
             ["Inventory:Address"] = "http://localhost:50051",

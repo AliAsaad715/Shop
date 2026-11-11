@@ -37,3 +37,6 @@ failed database writes do not create a marker. Redis failure sends authenticated
 turn a committed write into a failed response. Test replay barriers wait for the primary's inserted WAL position,
 including when the test database uses asynchronous commit. No developer Compose data or performance snapshots
 are modified by this fixture.
+
+Legacy test hosts explicitly disable routing so developer environment variables cannot change their primary-only
+query assertions. The R3-11 fixture enables it explicitly and exercises both database paths.

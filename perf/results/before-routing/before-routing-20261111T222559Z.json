@@ -1,0 +1,114 @@
+{
+  "label": "before-routing",
+  "commit": "r3-before-routing",
+  "startedAt": "2026-11-11T22:25:59.494Z",
+  "api": "http://localhost:8080",
+  "settings": {
+    "rate": 400,
+    "warmup": "30s",
+    "duration": "3m",
+    "pageSize": 20,
+    "paging": "cursor",
+    "etags": "on",
+    "only": null
+  },
+  "dataset": {
+    "categories": 20,
+    "products": 5006,
+    "customers": 5,
+    "customerSource": "seeded"
+  },
+  "window": {
+    "measuredFrom": "2026-11-11T22:26:33.750Z",
+    "measuredTo": "2026-11-11T22:29:33.750Z"
+  },
+  "overall": {
+    "requests": 32587,
+    "rps": 181,
+    "p50Ms": 2.3,
+    "p95Ms": 1371.4,
+    "p99Ms": 3913.6,
+    "maxMs": 10040.6,
+    "errorRate": 0.0005,
+    "bytesReceived": 177871594,
+    "notModified": 113
+  },
+  "endpoints": {
+    "product_list": {
+      "route": "GET /api/v1/products",
+      "share": 0.4,
+      "requests": 13067,
+      "rps": 72.6,
+      "p50Ms": 1.7,
+      "p95Ms": 1137.3,
+      "p99Ms": 3431.4,
+      "maxMs": 9464.9,
+      "errorRate": 0.0002,
+      "bytesReceived": 143821984,
+      "notModified": 0
+    },
+    "product_details": {
+      "route": "GET /api/v1/products/{id}",
+      "share": 0.4,
+      "requests": 12983,
+      "rps": 72.1,
+      "p50Ms": 2.4,
+      "p95Ms": 1336.9,
+      "p99Ms": 3265.9,
+      "maxMs": 10040.6,
+      "errorRate": 0.0001,
+      "bytesReceived": 12613598,
+      "notModified": 113
+    },
+    "categories": {
+      "route": "GET /api/v1/categories",
+      "share": 0.05,
+      "requests": 1684,
+      "rps": 9.4,
+      "p50Ms": 0.7,
+      "p95Ms": 1069.2,
+      "p99Ms": 2378.5,
+      "maxMs": 3183.6,
+      "errorRate": 0,
+      "bytesReceived": 2704504,
+      "notModified": 0
+    },
+    "my_orders": {
+      "route": "GET /api/v1/orders",
+      "share": 0.1,
+      "requests": 3233,
+      "rps": 18,
+      "p50Ms": 3.5,
+      "p95Ms": 2295.5,
+      "p99Ms": 5381.4,
+      "maxMs": 9945.7,
+      "errorRate": 0.0003,
+      "bytesReceived": 16921696,
+      "notModified": 0
+    },
+    "create_order": {
+      "route": "POST /api/v1/orders",
+      "share": 0.05,
+      "requests": 1620,
+      "rps": 9,
+      "p50Ms": 12.5,
+      "p95Ms": 3845.4,
+      "p99Ms": 5737.1,
+      "maxMs": 9916.8,
+      "errorRate": 0.0074,
+      "bytesReceived": 1809812,
+      "notModified": 0
+    }
+  },
+  "droppedIterations": 1834,
+  "vus": {
+    "allocated": 826,
+    "preallocated": 210,
+    "cap": 1250
+  },
+  "valid": false,
+  "problems": [
+    "dropped_iterations count==0",
+    "only 32587 of about 72000 requests were measured: the run was cut short"
+  ]
+}
