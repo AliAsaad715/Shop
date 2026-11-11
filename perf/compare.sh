@@ -48,9 +48,12 @@ def setup: {rate: .settings.rate, warmup: .settings.warmup, duration: .settings.
   "page size": .settings.pageSize, products: .dataset.products, categories: .dataset.categories,
   customers: "\(.dataset.customers) \(.dataset.customerSource)"};
 
+# Runs of only part of the mix (ONLY) measure that part on its own, not a step, so they stay out of the tables
+([.[] | select(.result.settings.only != null) | .result.label] | unique) as $focused
+| map(select(.result.settings.only == null))
 # Each label at the rate it was last run at, so a step measured again at another rate never mixes the two: its latest
 # valid runs there, the invalid ones, and how many runs at other rates are left out
-(group_by(.result.label) | map(sort_by(.result.startedAt) as $all
+| (group_by(.result.label) | map(sort_by(.result.startedAt) as $all
   | ($all[-1].result.settings.rate) as $rate
   | ($all | map(select(.result.settings.rate == $rate))) as $current
   | {label: $all[0].result.label, rate: $rate,
@@ -84,7 +87,7 @@ def setup: {rate: .settings.rate, warmup: .settings.warmup, duration: .settings.
 
   "# Requirement 3: before and after",
   "",
-  "Built by `perf/compare.sh` on \($built) from the latest \($keep) valid runs of each step. Each number is the median of those runs, in milliseconds, with the change from the baseline in brackets. **≈** marks a change within run-to-run variation: a change counts only when every run of the step was faster than every run of the baseline, or every one slower. **?** means one side has fewer than three runs, too few to tell.",
+  "Built by `perf/compare.sh` on \($built) from the latest \($keep) valid runs of each step. Each number is the median of those runs, in milliseconds, with the change from the baseline in brackets. **≈** marks a change within run-to-run variation: a change counts only when every run of the step was faster than every run of the baseline, or every one slower. **?** means one side has fewer than three runs, too few to tell. In the endpoint tables, Bytes/response is what a response cost on the wire, headers included, and 304s the share answered 304 Not Modified with no body (task R3-09).",
   "",
   (if $base == null then "There is no \"\($baseline)\" step yet, so no changes are shown.\n" else empty end),
   "## Overall",
@@ -102,13 +105,18 @@ def setup: {rate: .settings.rate, warmup: .settings.warmup, duration: .settings.
     | ([$steps[].runs[].result.endpoints[$name].route | select(. != null)] | .[0]) as $route
     | "## \($name): \($route)",
       "",
-      (["Step", "req/s", "p50", "p95", "p99", "Errors"] | row),
-      ([range(6) | "---"] | row),
+      (["Step", "req/s", "p50", "p95", "p99", "Errors", "Bytes/response", "304s"] | row),
+      ([range(8) | "---"] | row),
       ($steps[] | . as $step | select(any(.runs[].result.endpoints; has($name))) | [
         .label, (vals($step; ["endpoints", $name, "rps"]) | median | one),
         cell($step; ["endpoints", $name, "p50Ms"]), cell($step; ["endpoints", $name, "p95Ms"]),
         cell($step; ["endpoints", $name, "p99Ms"]),
-        (vals($step; ["endpoints", $name, "errorRate"]) | median | percent)
+        (vals($step; ["endpoints", $name, "errorRate"]) | median | percent),
+        ([.runs[].result.endpoints[$name] | select(. != null and .requests > 0) | .bytesReceived / .requests]
+          | median | if . == null then "–" else round | tostring end),
+        # Runs from before R3-09 didn't count 304s
+        ([.runs[].result.endpoints[$name] | select(. != null and .requests > 0 and has("notModified"))
+          | .notModified / .requests] | median | percent)
       ] | row),
       ""),
   "## What the system did",
@@ -151,7 +159,9 @@ def setup: {rate: .settings.rate, warmup: .settings.warmup, duration: .settings.
       | "- \(.label): \($n) earlier run\(if $n == 1 then "" else "s" end) at \([.others[].result.settings.rate] | unique
         | map(tostring) | join(" and ")) req/s left out; the step was measured again at \(.rate) req/s.\n"),
     ($steps[] | select(any(.runs[].result.dataset.customerSource; . == "registered"))
-      | "- \(.label) used customers registered for the run, so my_orders read empty order lists.\n")
+      | "- \(.label) used customers registered for the run, so my_orders read empty order lists.\n"),
+    ($focused | select(length > 0)
+      | "- Left out of the tables: \(join(", ")), runs of only part of the mix (ONLY), which measure that part on its own.\n")
   ] | if length == 0 then "Nothing to flag: every step ran with the baseline's settings and data.\n" else join("") end)
 JQ
 }

@@ -92,6 +92,12 @@ public sealed class RoutingApi : IAsyncLifetime
         _app.MapGet("/test/resource/{id:guid}", (Guid id) => id).AllowAnonymous();
         _app.MapGet("/test/protected", () => "protected");
         _app.MapGet("/test/admin", () => "admin").RequireAuthorization(Policies.AdminOnly);
+        // Chooses its own caching, as product details do, and says whether the request was authenticated
+        _app.MapGet("/test/revalidated", (HttpContext context) =>
+        {
+            context.Response.Headers.CacheControl = "no-cache";
+            return context.User.Identity?.IsAuthenticated == true ? "authenticated" : "anonymous";
+        }).AllowAnonymous();
         _app.MapGet("/api/v1/test/failure", (Func<string>)(() => throw new InvalidOperationException("Private test error")))
             .AllowAnonymous();
         await _app.StartAsync();

@@ -1,6 +1,6 @@
 # Requirement 3: before and after
 
-Built by `perf/compare.sh` on 2026-11-10 18:45 UTC from the latest 3 valid runs of each step. Each number is the median of those runs, in milliseconds, with the change from the baseline in brackets. **≈** marks a change within run-to-run variation: a change counts only when every run of the step was faster than every run of the baseline, or every one slower. **?** means one side has fewer than three runs, too few to tell.
+Built by `perf/compare.sh` on 2026-11-11 16:51 UTC from the latest 3 valid runs of each step. Each number is the median of those runs, in milliseconds, with the change from the baseline in brackets. **≈** marks a change within run-to-run variation: a change counts only when every run of the step was faster than every run of the baseline, or every one slower. **?** means one side has fewer than three runs, too few to tell. In the endpoint tables, Bytes/response is what a response cost on the wire, headers included, and 304s the share answered 304 Not Modified with no body (task R3-09).
 
 ## Overall
 
@@ -10,33 +10,33 @@ Built by `perf/compare.sh` on 2026-11-10 18:45 UTC from the latest 3 valid runs 
 
 ## product_list: GET /api/v1/products
 
-| Step | req/s | p50 | p95 | p99 | Errors |
-| --- | --- | --- | --- | --- | --- |
-| baseline | 400.0 | 2.8 | 6.9 | 18.0 | 0% |
+| Step | req/s | p50 | p95 | p99 | Errors | Bytes/response | 304s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| baseline | 400.0 | 2.8 | 6.9 | 18.0 | 0% | 10958 | – |
 
 ## product_details: GET /api/v1/products/{id}
 
-| Step | req/s | p50 | p95 | p99 | Errors |
-| --- | --- | --- | --- | --- | --- |
-| baseline | 400.0 | 2.4 | 6.8 | 21.3 | 0% |
+| Step | req/s | p50 | p95 | p99 | Errors | Bytes/response | 304s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| baseline | 400.0 | 2.4 | 6.8 | 21.3 | 0% | 924 | – |
 
 ## categories: GET /api/v1/categories
 
-| Step | req/s | p50 | p95 | p99 | Errors |
-| --- | --- | --- | --- | --- | --- |
-| baseline | 50.0 | 1.7 | 4.9 | 12.4 | 0% |
+| Step | req/s | p50 | p95 | p99 | Errors | Bytes/response | 304s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| baseline | 50.0 | 1.7 | 4.9 | 12.4 | 0% | 1606 | – |
 
 ## my_orders: GET /api/v1/orders
 
-| Step | req/s | p50 | p95 | p99 | Errors |
-| --- | --- | --- | --- | --- | --- |
-| baseline | 100.0 | 3.6 | 7.7 | 18.9 | 0% |
+| Step | req/s | p50 | p95 | p99 | Errors | Bytes/response | 304s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| baseline | 100.0 | 3.6 | 7.7 | 18.9 | 0% | 5236 | – |
 
 ## create_order: POST /api/v1/orders
 
-| Step | req/s | p50 | p95 | p99 | Errors |
-| --- | --- | --- | --- | --- | --- |
-| baseline | 50.0 | 8.5 | 23.2 | 54.9 | 0% |
+| Step | req/s | p50 | p95 | p99 | Errors | Bytes/response | 304s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| baseline | 50.0 | 8.5 | 23.2 | 54.9 | 0% | 1120 | – |
 
 ## What the system did
 
@@ -48,5 +48,6 @@ Medians over each step's runs, during the measured part only. CPU is each contai
 
 ## Notes
 
-- baseline: 1 invalid run left out.
+- baseline: 1 invalid run at 1000 req/s left out.
+- Left out of the tables: etag-off, etag-on, runs of only part of the mix (ONLY), which measure that part on its own.
 
