@@ -67,7 +67,7 @@ def setup: {rate: .settings.rate, warmup: .settings.warmup, duration: .settings.
 | (reduce ($steps[].runs[].result.endpoints | keys_unsorted[]) as $name ([];
     if any(.[]; . == $name) then . else . + [$name] end)) as $endpoints
 | ([$steps[].runs[].system | select(. != null) | .cpu.containers | keys[]] | unique) as $found
-| ["api", "postgres", "inventory", "inventory-db", "redis", "k6"] as $known
+| ["api", "postgres", "db-replica", "inventory", "inventory-db", "redis", "k6"] as $known
 | (($known | map(select(IN($found[])))) + ($found - $known)) as $services
 
 # A step's median at a path, with the change from the baseline and the noise check

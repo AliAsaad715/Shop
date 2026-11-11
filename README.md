@@ -412,6 +412,50 @@ nothing changing, 45% of the views came back as 304s, and the data received fell
 1.5% did: an order changes the stock in the body, and the products viewed most are the ones ordered most.
 [`perf/results/etag`](perf/results/etag/README.md) has the runs and the reasoning.
 
+## Read replica (task R3-10)
+
+`db-replica` is a streaming replica of `postgres`, for the reads that may be a moment old, which R3-11 sends to it.
+It runs only with its profile, so the default stack, and every step measured before R3-11, runs without it:
+
+```sh
+docker compose --profile replica up -d --wait   # the first start copies the primary: about 10 s for the perf dataset
+perf/replica-lag.sh                             # how far behind the primary it is
+perf/replica-lag.sh watch                       # a line a second, say during a load test
+```
+
+- **The copy.** The first start copies the primary with `pg_basebackup -R` ([`db/replica-entrypoint.sh`](db/replica-entrypoint.sh)).
+  `-R` writes `standby.signal` and `primary_conninfo`, so Postgres starts as a hot standby: it replays the primary's
+  WAL as it streams in and answers reads, and refuses writes ("cannot execute CREATE TABLE in a read-only
+  transaction"). Later starts resume streaming where they stopped.
+- **The role.** It streams as `replicator`, a role that may replicate and nothing else, created by the first copy
+  with `REPLICATION_PASSWORD`. [`db/pg_hba.conf`](db/pg_hba.conf), which both servers read through `hba_file`, lets
+  that role connect for replication; its other rules are the postgres image's own, so it works on an existing data
+  volume too.
+- **The slot.** A replication slot keeps on the primary the WAL the replica hasn't received yet, so a stopped
+  replica catches up when it starts again: 21 MB written while it was stopped were replayed within seconds.
+  `max_slot_wal_keep_size=1GB` caps that, so a replica stopped through more writes loses its slot instead of filling
+  the primary's disk, and has to be copied again: `docker compose --profile replica rm -sf db-replica`,
+  `docker volume rm shop_postgres-replica-data`, then start it. The copy replaces the old slot.
+- **Long reads.** `hot_standby_feedback=on` tells the primary which rows the replica's reads still use, so vacuum
+  there doesn't remove them and cancel the read.
+
+`perf/replica-lag.sh` first writes a marker to the primary's WAL, a logical decoding message that changes no table,
+so the numbers are fresh even when nothing else writes. Then it shows what the plan asks to watch, the primary's
+`pg_stat_replication`: the WAL not yet replayed, and the write, flush and replay lag. On this laptop, idle, the replay
+lag was about 1 ms, and a row written on the primary could be read on the replica 0.38 s later, most of it the
+polling's `docker exec`.
+
+`REPLICA_APPLY_DELAY=5s` (demos only) makes the replica replay every change 5 seconds late: the replay lag then reads
+5001 ms, and the same row took 5.41 s to appear. That's the stale read R3-11 has to handle: without read-your-writes,
+a new order would be missing from "my orders" for 5 seconds.
+
+`perf/snapshot.sh restore` waits for a running replica to replay the restore before the app restarts (17 s in all),
+and `perf/run.sh` and `perf/compare.sh` report its CPU with the other containers'.
+
+The replica must allow at least as many connections as the primary (and a few other limits), or it won't start;
+both keep the image's defaults. On one laptop a replica adds no hardware, so no speed-up is expected from it: its
+value is spreading reads over machines and keeping heavy reads off the primary.
+
 ## Verify
 
 ```sh

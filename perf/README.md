@@ -11,6 +11,7 @@ These tools measure each step of Requirement 3 the same way, on the same data, s
 | [`compare.sh`](compare.sh) | R3-02b | Builds [`results/comparison.md`](results), the before/after report with a noise check |
 | [`top-queries.sh`](top-queries.sh) | R3-04 | Lists the queries with the most database time, from `pg_stat_statements` |
 | [`explain.sh`](explain.sh), [`plans/`](plans) | R3-05 | Shows a query's real plan, `EXPLAIN (ANALYZE, BUFFERS)`; the top queries' plans before and after keyset paging |
+| [`replica-lag.sh`](replica-lag.sh) | R3-10 | Shows how far the read replica is behind the primary: the WAL it hasn't replayed, and its write, flush and replay lag; `watch` prints a line a second |
 
 They need Docker, bash and jq (`sudo apt install jq`, or `brew install jq`); `run.sh` runs k6 from its Docker image.
 
@@ -68,7 +69,9 @@ size and when and at which commit it was saved.
    such as an IDE, is disconnected.
 2. It copies each snapshot to a temporary database, and only then swaps it in for the live one.
 3. It empties Redis, once there is one (R3-07), so no step inherits another's cache.
-4. It starts the warehouse and the app, and waits until both answer.
+4. When the read replica runs (R3-10), it waits until the replica has replayed the restore too, so a run never starts
+   while the replica is still copying.
+5. It starts the warehouse and the app, and waits until both answer.
 
 Each snapshot takes as much disk as its database. Database-level settings (`ALTER DATABASE ... SET`) aren't copied;
 the project has none.
