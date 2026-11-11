@@ -23,6 +23,7 @@ public sealed class ProductCatalogFixture : IAsyncLifetime
     public static readonly Guid SecondBookId = Guid.Parse("019a2180-1000-7000-8000-000000000002");
     public static readonly Guid NewestBookId = Guid.Parse("019a2180-1000-7000-8000-000000000003");
     public static readonly Guid HomeProductId = Guid.Parse("019a2180-1000-7000-8000-000000000004");
+    public static readonly Guid HomeCategoryId = Guid.Parse("019a2180-0000-7000-8000-000000000003");
 
     private PostgreSqlContainer? _postgres;
 

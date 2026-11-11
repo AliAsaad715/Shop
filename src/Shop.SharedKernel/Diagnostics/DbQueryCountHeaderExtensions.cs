@@ -17,6 +17,7 @@ public static class DbQueryCountHeaderExtensions
         {
             var count = new DbQueryCount();
             context.Features.Set(count);
+            DbQueryCount.Current.Value = count;
 
             // Set as the headers go out, so every command before that counts, an error's included
             context.Response.OnStarting(() =>

@@ -5,6 +5,7 @@ using Shop.Modules.Notifications;
 using Shop.Modules.Orders;
 using Shop.Modules.Products;
 using Shop.Modules.Users;
+using Shop.SharedKernel.Caching;
 using Shop.SharedKernel.Diagnostics;
 using Shop.SharedKernel.Errors;
 using Shop.SharedKernel.Persistence;
@@ -18,6 +19,8 @@ builder.Services
     .AddOrdersModule()
     .AddNotificationsModule();
 
+// Redis behind the modules' HybridCache when ConnectionStrings:Redis is set (task R3-07)
+builder.Services.AddRedisCache(builder.Configuration);
 builder.Services.AddErrorContract();
 builder.Services.AddVersionedApiDocs();
 builder.Services.AddHealthChecks();

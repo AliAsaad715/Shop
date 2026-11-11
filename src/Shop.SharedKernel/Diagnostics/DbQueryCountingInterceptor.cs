@@ -1,5 +1,4 @@
 using System.Data.Common;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Shop.SharedKernel.Diagnostics;
@@ -9,7 +8,7 @@ namespace Shop.SharedKernel.Diagnostics;
 /// Each command is one round trip to the database, so a list that runs a query per item shows up as a number.
 /// Work outside a request, such as migrations or background workers, has no count and isn't counted.
 /// </summary>
-internal sealed class DbQueryCountingInterceptor(IHttpContextAccessor httpContextAccessor) : DbCommandInterceptor
+internal sealed class DbQueryCountingInterceptor : DbCommandInterceptor
 {
     public override InterceptionResult<DbDataReader> ReaderExecuting(
         DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result)
@@ -56,5 +55,5 @@ internal sealed class DbQueryCountingInterceptor(IHttpContextAccessor httpContex
         return ValueTask.FromResult(result);
     }
 
-    private void Count() => httpContextAccessor.HttpContext?.Features.Get<DbQueryCount>()?.Increment();
+    private static void Count() => DbQueryCount.Current.Value?.Increment();
 }

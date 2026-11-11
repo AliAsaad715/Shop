@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Shop.Modules.Products.Catalog;
 using Shop.Modules.Products.Contracts;
 using Shop.Modules.Products.Data;
 using Xunit;
@@ -70,12 +71,12 @@ public sealed class ProductETagTests(ProductCatalogFixture fixture) : IClassFixt
         Assert.Equal(16, (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("available").GetInt32());
     }
 
+    // Edited as a write does it: the database, then the cached copy (task R3-07)
     [Fact]
     public async Task EditingTheProductChangesTheETag()
     {
         var before = await CurrentETagAsync();
-        await UpdateAsync(context => context.Products.Where(product => product.Id == ProductId)
-            .ExecuteUpdateAsync(product => product.SetProperty(row => row.Description, "Edited description.")));
+        await EditAsync("Edited description.");
         try
         {
             using var response = await GetAsync(ProductId, before);
@@ -87,8 +88,7 @@ public sealed class ProductETagTests(ProductCatalogFixture fixture) : IClassFixt
         }
         finally
         {
-            await UpdateAsync(context => context.Products.Where(product => product.Id == ProductId)
-                .ExecuteUpdateAsync(product => product.SetProperty(row => row.Description, "Catalog integration test product.")));
+            await EditAsync("Catalog integration test product.");
         }
     }
 
@@ -164,9 +164,20 @@ public sealed class ProductETagTests(ProductCatalogFixture fixture) : IClassFixt
         return await fixture.Client.SendAsync(request);
     }
 
-    private Task RenameHomeAsync(string from, string to) =>
-        UpdateAsync(context => context.Categories.Where(category => category.Name == from)
+    private async Task EditAsync(string description)
+    {
+        await UpdateAsync(context => context.Products.Where(product => product.Id == ProductId)
+            .ExecuteUpdateAsync(product => product.SetProperty(row => row.Description, description)));
+        await fixture.App.Services.GetRequiredService<CatalogCache>()
+            .ProductChangedAsync(ProductId, ProductCatalogFixture.HomeCategoryId);
+    }
+
+    private async Task RenameHomeAsync(string from, string to)
+    {
+        await UpdateAsync(context => context.Categories.Where(category => category.Name == from)
             .ExecuteUpdateAsync(category => category.SetProperty(row => row.Name, to)));
+        await fixture.App.Services.GetRequiredService<CatalogCache>().CatalogChangedAsync();
+    }
 
     private async Task UpdateAsync(Func<ProductsDbContext, Task> update)
     {

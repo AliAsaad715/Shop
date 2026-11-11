@@ -10,6 +10,7 @@ using Shop.Modules.Products.Data;
 using Shop.Modules.Products.Images;
 using Shop.Modules.Products.Inventory;
 using Shop.Modules.Products.Seeding;
+using Shop.SharedKernel.Caching;
 using Shop.SharedKernel.Persistence;
 
 namespace Shop.Modules.Products;
@@ -21,6 +22,10 @@ public static class ProductsModule
         services.AddModuleDbContext<ProductsDbContext>(ProductsDbContext.Schema);
         services.AddInventoryClient();
         services.AddScoped<IProductCatalog, ProductCatalog>();
+
+        // Product details, categories and each list's first page (task R3-07); Redis sits behind it when the host adds it
+        services.AddModuleCache();
+        services.AddSingleton<CatalogCache>();
         services.AddScoped<IImageStorage, LocalImageStorage>();
         services.AddOptions<ImageStorageOptions>().BindConfiguration("Images")
             .Validate(options => !string.IsNullOrWhiteSpace(options.RootPath), "Images:RootPath is required.");

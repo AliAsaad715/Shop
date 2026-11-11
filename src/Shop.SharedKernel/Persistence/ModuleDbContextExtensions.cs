@@ -25,7 +25,6 @@ public static class ModuleDbContextExtensions
         where TContext : DbContext
     {
         services.AddSingleton(new ModuleDbContextRegistration(typeof(TContext)));
-        services.AddHttpContextAccessor();
         services.TryAddSingleton<DbQueryCountingInterceptor>();
 
         return services.AddDbContext<TContext>((serviceProvider, options) =>

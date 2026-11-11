@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Shop.Modules.Products.Catalog;
 using Shop.Modules.Products.Data;
 using Shop.Modules.Products.Domain;
 using Shop.Modules.Products.Images;
@@ -15,6 +16,7 @@ namespace Shop.Modules.Products.Seeding;
 internal sealed class DemoProductSeeder(
     IServiceScopeFactory scopeFactory,
     IOptions<DemoSeedOptions> options,
+    CatalogCache catalog,
     ILogger<DemoProductSeeder> logger) : IHostedService
 {
     internal const string ImageResource = "Shop.Modules.Products.Seeding.demo-product.png";
@@ -81,6 +83,12 @@ internal sealed class DemoProductSeeder(
             }
 
             throw;
+        }
+
+        // Redis outlives a restart, so lists it cached before may lack these products
+        foreach (var (_, demo) in missing)
+        {
+            await catalog.ProductChangedAsync(demo.Id, demo.CategoryId);
         }
 
         logger.LogInformation("Seeded {Count} demo products", missing.Count);

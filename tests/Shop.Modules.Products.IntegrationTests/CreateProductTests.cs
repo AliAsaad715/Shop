@@ -8,6 +8,7 @@ using Shop.Modules.Products.Creation;
 using Shop.Modules.Products.Data;
 using Shop.Modules.Products.Images;
 using Shop.SharedKernel.Auth;
+using Shop.SharedKernel.Caching;
 using Shop.SharedKernel.Errors;
 using Xunit;
 
@@ -213,6 +214,31 @@ public sealed class CreateProductTests(CreateProductFixture fixture) : IClassFix
 
         Assert.Null(await storage.OpenReadAsync(path, CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentException>(() => storage.DeleteAsync(path, CancellationToken.None));
+    }
+
+    // The first pages of the lists are cached (task R3-07), and creating a product clears the ones it now leads
+    [Fact]
+    public async Task ANewProductLeadsItsCategorysFirstPageAndTheCatalogsAtOnce()
+    {
+        string[] lists = [$"/api/v1/products?category={fixture.CategoryId}&pageSize=50", "/api/v1/products?pageSize=50"];
+        foreach (var list in lists)
+        {
+            using var load = await fixture.Client.GetAsync(list);
+            using var cached = await fixture.Client.GetAsync(list);
+            Assert.Equal("HIT", Assert.Single(cached.Headers.GetValues(CacheReads.HeaderName)));
+        }
+
+        using var response = await PostAsync(Form());
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var created = (await response.Content.ReadFromJsonAsync<CreatedProductResponse>())!;
+
+        foreach (var list in lists)
+        {
+            using var page = await fixture.Client.GetAsync(list);
+            Assert.Equal("MISS", Assert.Single(page.Headers.GetValues(CacheReads.HeaderName)));
+            var newest = (await page.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("items")[0];
+            Assert.Equal(created.Id, newest.GetProperty("id").GetGuid());
+        }
     }
 
     private MultipartFormDataContent Form(byte[]? bytes = null, string filename = "photo.png", string contentType = "image/png",

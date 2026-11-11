@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
+using Shop.Modules.Products.Catalog;
 using Shop.Modules.Products.Data;
 using Shop.Modules.Products.Domain;
 using Shop.Modules.Products.Images;
@@ -30,7 +31,7 @@ internal static class CreateProductEndpoint
             .ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
 
     public static async Task<Results<Created<CreatedProductResponse>, ProblemHttpResult>> HandleAsync(
-        [FromForm] CreateProductRequest request, ProductsDbContext context, IImageStorage images,
+        [FromForm] CreateProductRequest request, ProductsDbContext context, IImageStorage images, CatalogCache catalog,
         HttpContext httpContext, ILogger<IImageStorage> logger, CancellationToken ct)
     {
         var file = request.Image!;
@@ -95,6 +96,9 @@ internal static class CreateProductEndpoint
 
             throw;
         }
+
+        // Newest first, so the product leads its category's first page and the whole catalog's: neither cached copy holds it
+        await catalog.ProductChangedAsync(product.Id, product.CategoryId);
 
         var location = $"{httpContext.Request.PathBase}{httpContext.Request.Path.ToString().TrimEnd('/')}/{product.Id}";
         return TypedResults.Created(location, new CreatedProductResponse(

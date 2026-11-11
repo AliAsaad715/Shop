@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Shop.Modules.Products.Contracts;
 using Shop.Modules.Products.Data;
 using Shop.Modules.Products.Domain;
+using Shop.SharedKernel.Caching;
 using Shop.SharedKernel.Diagnostics;
 using Shop.SharedKernel.Errors;
 using Shop.SharedKernel.Validation;
@@ -24,42 +25,50 @@ namespace Shop.Modules.Products.IntegrationTests;
 [Collection("Products database")]
 public sealed class DbQueryCountTests(DbQueryCountFixture fixture) : IClassFixture<DbQueryCountFixture>
 {
+    // Since R3-07 these come from the cache: a miss counts the commands its load sent, and a hit sends none. Each path
+    // is read by no other test here, so its first request is a miss
     [Theory]
     [InlineData("/api/v1/categories", 1)]
-    [InlineData("/api/v1/products", 2)] // the page, and its total for the page count
+    [InlineData("/api/v1/products?pageSize=7", 2)] // the page, and its total for the page count
     [InlineData("/api/v1/products/019a2180-2000-7000-8000-000000000001", 1)] // the stock comes from the warehouse
     [InlineData("/api/v1/products/019a2180-2000-7000-8000-0000000000ff", 1)] // a 404 still made its lookup
     public async Task DevelopmentCountsEachRequestsCommands(string path, int expected)
     {
-        using var response = await fixture.Development.GetAsync(path);
+        using var miss = await fixture.Development.GetAsync(path);
+        using var hit = await fixture.Development.GetAsync(path);
 
-        Assert.Equal(expected.ToString(CultureInfo.InvariantCulture), Header(response));
+        Assert.Equal(("MISS", expected.ToString(CultureInfo.InvariantCulture)), (Cache(miss), Header(miss)));
+        Assert.Equal(("HIT", "0"), (Cache(hit), Header(hit)));
     }
 
     [Fact]
     public async Task EachRequestCountsOnlyItsOwnCommands()
     {
+        // A second page isn't cached, so every request sends its two commands
         for (var request = 0; request < 3; request++)
         {
-            using var response = await fixture.Development.GetAsync("/api/v1/products");
+            using var response = await fixture.Development.GetAsync("/api/v1/products?page=2&pageSize=1");
 
             Assert.Equal("2", Header(response));
         }
     }
 
-    // An ETag saves the transfer, not the database work: the product is read either way (task R3-09)
+    // An ETag saves the transfer, not the reads: a 304 reads the product just as a 200 does (task R3-09), which since
+    // R3-07 means from the cache once it's there
     [Fact]
-    public async Task A304StillReadsTheProductOnce()
+    public async Task A304ReadsTheProductAsA200Does()
     {
-        const string path = "/api/v1/products/019a2180-2000-7000-8000-000000000001";
+        const string path = "/api/v1/products/019a2180-2000-7000-8000-000000000002";
         using var first = await fixture.Development.GetAsync(path);
+        using var second = await fixture.Development.GetAsync(path);
         using var request = new HttpRequestMessage(HttpMethod.Get, path);
         request.Headers.IfNoneMatch.Add(first.Headers.ETag!);
 
         using var revalidated = await fixture.Development.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.NotModified, revalidated.StatusCode);
-        Assert.Equal("1", Header(revalidated));
+        Assert.Equal("1", Header(first));
+        Assert.Equal((Cache(second), Header(second)), (Cache(revalidated), Header(revalidated)));
     }
 
     [Fact]
@@ -73,12 +82,16 @@ public sealed class DbQueryCountTests(DbQueryCountFixture fixture) : IClassFixtu
 
     private static string Header(HttpResponseMessage response) =>
         Assert.Single(response.Headers.GetValues(DbQueryCountHeaderExtensions.HeaderName));
+
+    private static string Cache(HttpResponseMessage response) =>
+        Assert.Single(response.Headers.GetValues(CacheReads.HeaderName));
 }
 
 // Two hosts on one database, alike except for the environment, set up as Program.cs sets up the app
 public sealed class DbQueryCountFixture : IAsyncLifetime
 {
-    private static readonly Guid ProductId = Guid.Parse("019a2180-2000-7000-8000-000000000001");
+    private static readonly Guid[] ProductIds =
+        [Guid.Parse("019a2180-2000-7000-8000-000000000001"), Guid.Parse("019a2180-2000-7000-8000-000000000002")];
 
     private PostgreSqlContainer? _postgres;
     private WebApplication? _development;
@@ -104,17 +117,18 @@ public sealed class DbQueryCountFixture : IAsyncLifetime
         {
             var context = scope.ServiceProvider.GetRequiredService<ProductsDbContext>();
             await context.Database.MigrateAsync();
-            await context.Products.Where(product => product.Id == ProductId).ExecuteDeleteAsync();
-            context.Products.Add(new Product
+            await context.Products.Where(product => ProductIds.Contains(product.Id)).ExecuteDeleteAsync();
+            var categoryId = await context.Categories.Select(category => category.Id).FirstAsync();
+            context.Products.AddRange(ProductIds.Select(id => new Product
             {
-                Id = ProductId,
+                Id = id,
                 Name = "Counted product",
                 Description = "Query count integration test product.",
                 Price = 5m,
                 ImagePath = "products/counted.png",
-                CategoryId = await context.Categories.Select(category => category.Id).FirstAsync(),
+                CategoryId = categoryId,
                 CreatedAt = DateTimeOffset.UtcNow,
-            });
+            }));
             await context.SaveChangesAsync();
         }
 
