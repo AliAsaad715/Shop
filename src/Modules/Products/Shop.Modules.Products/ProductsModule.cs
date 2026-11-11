@@ -11,6 +11,7 @@ using Shop.Modules.Products.Data;
 using Shop.Modules.Products.Images;
 using Shop.Modules.Products.Inventory;
 using Shop.Modules.Products.Seeding;
+using Shop.Modules.Products.Updates;
 using Shop.SharedKernel.Persistence;
 using Shop.SharedKernel.Caching;
 
@@ -44,7 +45,7 @@ public static class ProductsModule
         services.AddOptions<DemoSeedOptions>().BindConfiguration(DemoSeedOptions.Section);
         services.AddHostedService<DemoProductSeeder>();
 
-        // One scan registers every validator in the module (creation and catalog alike)
+        // One scan registers every validator in the module, including product updates.
         services.AddValidatorsFromAssemblyContaining<CreateProductRequestValidator>(includeInternalTypes: true);
 
         return services;
@@ -54,6 +55,7 @@ public static class ProductsModule
     {
         ProductEndpoints.Map(endpoints);
         CreateProductEndpoint.Map(endpoints);
+        UpdateProductEndpoint.Map(endpoints);
 
         return endpoints;
     }
