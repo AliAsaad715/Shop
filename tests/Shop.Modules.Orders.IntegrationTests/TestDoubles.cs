@@ -53,10 +53,15 @@ public sealed class FakeProductCatalog : IProductCatalog
 {
     public static readonly ProductCatalogItem Book = new(Guid.Parse("019a2180-2000-7000-8000-000000000001"), "Book", 19.95m);
     public static readonly ProductCatalogItem Lamp = new(Guid.Parse("019a2180-2000-7000-8000-000000000002"), "Lamp", 45.50m);
+    public static readonly ProductCatalogItem Mug = new(Guid.Parse("019a2180-2000-7000-8000-000000000003"), "Mug", 12.50m);
+    public static readonly ProductCatalogItem Pen = new(Guid.Parse("019a2180-2000-7000-8000-000000000004"), "Pen", 2.25m);
+    public static readonly ProductCatalogItem Scarf = new(Guid.Parse("019a2180-2000-7000-8000-000000000005"), "Scarf", 24.00m);
+
+    public static IReadOnlyList<ProductCatalogItem> All { get; } = [Book, Lamp, Mug, Pen, Scarf];
 
     public Task<IReadOnlyDictionary<Guid, ProductCatalogItem>> GetByIdsAsync(IReadOnlyCollection<Guid> productIds, CancellationToken ct) =>
         Task.FromResult<IReadOnlyDictionary<Guid, ProductCatalogItem>>(
-            new[] { Book, Lamp }.Where(product => productIds.Contains(product.Id)).ToDictionary(product => product.Id));
+            All.Where(product => productIds.Contains(product.Id)).ToDictionary(product => product.Id));
 }
 
 // Records every call so tests can prove the reserve, save, release flow; tests can also make it refuse or fail

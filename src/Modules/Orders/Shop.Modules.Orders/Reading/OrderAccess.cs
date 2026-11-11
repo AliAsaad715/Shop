@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using Shop.Modules.Orders.Domain;
 using Shop.SharedKernel.Auth;
 
 namespace Shop.Modules.Orders.Reading;
@@ -12,16 +11,16 @@ internal static class OrderAccess
 {
     public const string SecurityLogCategory = "Shop.Modules.Orders.Security";
 
-    public static bool CanView(Order order, ICurrentUser currentUser, ILogger securityLog)
+    public static bool CanView(Guid orderId, Guid customerId, ICurrentUser currentUser, ILogger securityLog)
     {
-        if (currentUser.IsInRole(Roles.Admin) || (currentUser.UserId is { } userId && userId == order.CustomerId))
+        if (currentUser.IsInRole(Roles.Admin) || (currentUser.UserId is { } userId && userId == customerId))
         {
             return true;
         }
 
         securityLog.LogWarning(
             "User {UserId} was denied order {OrderId}, which belongs to another customer; answered 404",
-            currentUser.UserId, order.Id);
+            currentUser.UserId, orderId);
 
         return false;
     }

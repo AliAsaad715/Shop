@@ -35,7 +35,8 @@ internal static class UpdateOrderStatusEndpoint
         ReservationReleaser releaser, TimeProvider time, HttpResponse response, CancellationToken ct)
     {
         response.Headers.CacheControl = "no-store";
-        var order = await context.Orders.AsSplitQuery()
+        // Tracked, to change it, and in one round trip: the history it joins never passes 4 rows (see GetAsync)
+        var order = await context.Orders.AsSingleQuery()
             .Include(order => order.Lines)
             .Include(order => order.History)
             .SingleOrDefaultAsync(order => order.Id == id, ct);

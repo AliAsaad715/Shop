@@ -69,13 +69,18 @@ internal static class OrderEndpoints
         HttpResponse response, CancellationToken ct)
     {
         response.Headers.CacheControl = "no-store";
-        var order = await context.Orders.AsNoTracking().AsSplitQuery()
-            .Include(order => order.Lines)
-            .Include(order => order.History)
-            .SingleOrDefaultAsync(order => order.Id == id, ct);
 
-        return order is not null && OrderAccess.CanView(order, currentUser, loggers.CreateLogger(OrderAccess.SecurityLogCategory))
-            ? TypedResults.Ok(OrderResponse.From(order))
+        // One round trip for the order, its lines and its history, projected straight into the response. Joining two
+        // collections multiplies rows, but an order's history never passes 4 (Pending, Confirmed, Shipped, Delivered),
+        // so the query returns at most 4 rows per line: far cheaper than the two extra round trips a split query takes
+        var order = await context.Orders.AsSingleQuery()
+            .Where(order => order.Id == id)
+            .Select(OrderResponse.Projection)
+            .SingleOrDefaultAsync(ct);
+
+        return order is not null
+            && OrderAccess.CanView(order.Id, order.CustomerId, currentUser, loggers.CreateLogger(OrderAccess.SecurityLogCategory))
+            ? TypedResults.Ok(order)
             : NotFound();
     }
 

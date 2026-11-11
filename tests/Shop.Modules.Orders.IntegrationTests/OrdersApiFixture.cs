@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using Shop.Modules.Orders.Data;
 using Shop.Modules.Products.Contracts;
 using Shop.SharedKernel.Auth;
+using Shop.SharedKernel.Diagnostics;
 using Shop.SharedKernel.Errors;
 using Shop.SharedKernel.Validation;
 using Testcontainers.PostgreSql;
@@ -21,7 +22,7 @@ namespace Shop.Modules.Orders.IntegrationTests;
 [CollectionDefinition("Orders database")]
 public sealed class OrdersDatabaseCollection : ICollectionFixture<OrdersApiFixture>;
 
-public sealed class OrdersApiFixture : IAsyncLifetime
+public class OrdersApiFixture : IAsyncLifetime
 {
     public static readonly Guid CustomerA = Guid.Parse("019a2180-3000-7000-8000-00000000000a");
     public static readonly Guid CustomerB = Guid.Parse("019a2180-3000-7000-8000-00000000000b");
@@ -34,6 +35,9 @@ public sealed class OrdersApiFixture : IAsyncLifetime
     public OrderSaveFailure SaveFailure { get; } = new();
     public TestLogSink Logs { get; } = new();
 
+    // Development adds the X-Db-Queries header (task R3-04), which OrdersQueryCountFixture's tests read
+    protected virtual string EnvironmentName => Environments.Production;
+
     public async Task InitializeAsync()
     {
         // This fixture deletes every order, so an external database must be a disposable one
@@ -45,7 +49,7 @@ public sealed class OrdersApiFixture : IAsyncLifetime
             connectionString = _postgres.GetConnectionString();
         }
 
-        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = Environments.Production });
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = EnvironmentName });
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
         builder.Logging.AddProvider(Logs);
@@ -72,6 +76,11 @@ public sealed class OrdersApiFixture : IAsyncLifetime
         });
 
         App = builder.Build();
+        if (App.Environment.IsDevelopment())
+        {
+            App.UseDbQueryCountHeader();
+        }
+
         App.UseExceptionHandler();
         App.UseStatusCodePages();
         App.UseAuthentication();
