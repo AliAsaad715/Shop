@@ -12,6 +12,9 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       Images__RootPath: /data/images
       ConnectionStrings__Shop: Host=postgres;Port=5432;Database=${POSTGRES_DB:-shop};Username=${POSTGRES_USER:-shop};Password=${POSTGRES_PASSWORD:-shop}
+      ConnectionStrings__ShopRead: Host=db-replica,postgres;Port=5432;Database=${POSTGRES_DB:-shop};Username=${POSTGRES_USER:-shop};Password=${POSTGRES_PASSWORD:-shop};Target Session Attributes=prefer-standby;Timeout=2;Host Recheck Seconds=5
+      ReadRouting__Enabled: ${READ_ROUTING_ENABLED:-false}
+      ReadRouting__PrimaryWindow: ${READ_YOUR_WRITES_WINDOW:-00:00:10}
       # Seeded on startup in the Admin role; change both outside local demos
       Admin__Email: ${ADMIN_EMAIL:-admin@shop.local}
       Admin__Password: ${ADMIN_PASSWORD:-Admin123!}

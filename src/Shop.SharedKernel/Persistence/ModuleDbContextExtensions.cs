@@ -27,6 +27,21 @@ public static class ModuleDbContextExtensions
         services.AddSingleton(new ModuleDbContextRegistration(typeof(TContext)));
         services.AddHttpContextAccessor();
         services.TryAddSingleton<DbQueryCountingInterceptor>();
+        services.AddScoped<ModuleReadDbContextFactory<TContext>>();
+        if (!services.Any(service => service.ServiceType == typeof(DatabaseReadRouter)))
+        {
+            services.AddMemoryCache();
+            services.AddScoped<DatabaseReadRouter>();
+            services.AddOptions<ReadRoutingOptions>().BindConfiguration(ReadRoutingOptions.Section)
+                .Validate(options => options.PrimaryWindow > TimeSpan.Zero, "ReadRouting:PrimaryWindow must be positive.")
+                .Validate<IConfiguration>((options, config) => !options.Enabled
+                    || !string.IsNullOrWhiteSpace(config.GetConnectionString("ShopRead")),
+                    "ConnectionStrings:ShopRead is required when read routing is enabled.")
+                .Validate<IConfiguration>((options, config) => !options.Enabled
+                    || !string.IsNullOrWhiteSpace(config.GetConnectionString("Redis")),
+                    "ConnectionStrings:Redis is required when read routing is enabled.")
+                .ValidateOnStart();
+        }
 
         return services.AddDbContext<TContext>((serviceProvider, options) =>
         {

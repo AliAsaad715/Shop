@@ -9,6 +9,7 @@ using Shop.Modules.Orders.Reading;
 using Shop.Modules.Orders.Releases;
 using Shop.SharedKernel.Auth;
 using Shop.SharedKernel.Errors;
+using Shop.SharedKernel.Persistence;
 
 namespace Shop.Modules.Orders.StatusChanges;
 
@@ -32,7 +33,7 @@ internal static class UpdateOrderStatusEndpoint
     /// </summary>
     public static async Task<Results<Ok<OrderResponse>, ProblemHttpResult>> HandleAsync(
         Guid id, UpdateOrderStatusRequest request, OrdersDbContext context, ICurrentUser currentUser,
-        ReservationReleaser releaser, TimeProvider time, HttpResponse response, CancellationToken ct)
+        ReservationReleaser releaser, TimeProvider time, HttpResponse response, DatabaseReadRouter routing, CancellationToken ct)
     {
         response.Headers.CacheControl = "no-store";
         // Tracked, to change it, and in one round trip: the history it joins never passes 4 rows (see GetAsync)
@@ -54,6 +55,7 @@ internal static class UpdateOrderStatusEndpoint
 
         order.MoveTo(next, currentUser.UserId!.Value, time.GetUtcNow());
         await context.SaveChangesAsync(ct);
+        await routing.MarkWrittenAsync();
 
         if (next == OrderStatus.Cancelled)
         {
