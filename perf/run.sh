@@ -15,6 +15,7 @@ cd "$(dirname "$0")/.."
 K6_IMAGE=grafana/k6:2.3.0
 K6_CONTAINER=shop-perf-k6
 REDIS_SERVICE=${REDIS_SERVICE:-redis}
+REPLICA_SERVICE=${REPLICA_SERVICE:-db-replica}
 RUNS=${RUNS:-3}
 SAMPLE_SECONDS=2
 # The seeded customers every step uses (perf/seed.sql): the two with the most orders, and three typical ones
@@ -73,12 +74,22 @@ trap 'exit 130' INT TERM
 
 # Runs SQL on the app's database: the -c argument, or stdin
 app_sql() {
-  docker compose exec -T postgres sh -c \
+  database_sql postgres "$@"
+}
+
+database_sql() {
+  local service=$1
+  shift
+  docker compose --profile replica exec -T "$service" sh -c \
     'exec psql -X -q -At -F "|" -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh "$@"
 }
 
 redis_running() {
   docker compose ps --status running --services | grep -qx "$REDIS_SERVICE"
+}
+
+replica_running() {
+  docker compose --profile replica ps --status running --services | grep -qx "$REPLICA_SERVICE"
 }
 
 # Every container's CPU, as "<epoch> <container> <percent of one core>" lines, until killed
@@ -107,11 +118,17 @@ start_samplers() {
   samplers=($!)
   (printf '%s\n\\watch %s\n' "$CONNECTIONS_SQL" "$SAMPLE_SECONDS" | app_sql) >"$tmp/db.txt" 2>/dev/null &
   samplers+=($!)
+  if replica_running; then
+    (printf '%s\n\\watch %s\n' "$CONNECTIONS_SQL" "$SAMPLE_SECONDS" | database_sql "$REPLICA_SERVICE") >"$tmp/replica.txt" 2>/dev/null &
+    samplers+=($!)
+  fi
 }
 
 # Counts start from zero for each run, where the counters exist: pg_stat_statements since task R3-04, Redis with R3-07
 reset_counters() {
   if perf/top-queries.sh reset >/dev/null 2>&1; then statements=yes; else statements=no; fi
+  replica_statements=no
+  if replica_running && DATABASE_SERVICE="$REPLICA_SERVICE" perf/top-queries.sh reset >/dev/null 2>&1; then replica_statements=yes; fi
   if redis_running; then
     docker compose exec -T "$REDIS_SERVICE" redis-cli CONFIG RESETSTAT >/dev/null
   fi
@@ -124,9 +141,23 @@ newest_result() {
   return 0
 }
 
-# Writes <result>.system.json: what the system did between the result's measuredFrom and measuredTo
+# Summarizes either server's connection samples within the measured window.
+database_stats() {
+  jq -n -R --argjson from "$2" --argjson to "$3" '
+    [inputs | split("|") | select(length == 5)
+      | {t: (.[0] | tonumber), all: (.[1] | tonumber), active: (.[2] | tonumber), waiting: (.[3] | tonumber),
+         waits: (.[4] | if . == "" then [] else split(",") end)}]
+    | map(select(.t >= $from and .t <= $to))
+    | if length == 0 then null else {
+        maxConnections: (map(.all) | max), avgActive: (map(.active) | add / length * 10 | round / 10),
+        maxActive: (map(.active) | max), maxWaiting: (map(.waiting) | max),
+        waitEvents: ([.[].waits[]] | group_by(.) | map({key: .[0], value: length}) | sort_by(-.value) | from_entries)
+      } end' <"$1"
+}
+
+# Writes <result>.system.json: what the system did between the result's measuredFrom and measuredTo.
 write_system() {
-  local result=$1 from to cpu database queries redis notes='[]'
+  local result=$1 from to cpu database queries redis replica=null replica_queries=null notes='[]'
   from=$(jq '.window.measuredFrom | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601' "$result")
   to=$(jq '.window.measuredTo | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601' "$result")
 
@@ -138,18 +169,9 @@ write_system() {
                                        maxPercent: (map(.cpu) | max * 10 | round / 10)}})
     | from_entries' <"$tmp/cpu.txt")
 
-  database=$(jq -n -R --argjson from "$from" --argjson to "$to" '
-    [inputs | split("|") | select(length == 5)
-      | {t: (.[0] | tonumber), all: (.[1] | tonumber), active: (.[2] | tonumber), waiting: (.[3] | tonumber),
-         waits: (.[4] | if . == "" then [] else split(",") end)}]
-    | map(select(.t >= $from and .t <= $to))
-    | if length == 0 then null else {
-        maxConnections: (map(.all) | max),
-        avgActive: (map(.active) | add / length * 10 | round / 10),
-        maxActive: (map(.active) | max),
-        maxWaiting: (map(.waiting) | max),
-        waitEvents: ([.[].waits[]] | group_by(.) | map({key: .[0], value: length}) | sort_by(-.value) | from_entries)
-      } end' <"$tmp/db.txt")
+  database=$(database_stats "$tmp/db.txt" "$from" "$to")
+  if [[ -f $tmp/replica.txt ]]; then replica=$(database_stats "$tmp/replica.txt" "$from" "$to"); fi
+  if [[ $replica_statements == yes ]]; then replica_queries=$(DATABASE_SERVICE="$REPLICA_SERVICE" perf/top-queries.sh json 10); fi
 
   if [[ $statements == yes ]]; then
     queries=$(perf/top-queries.sh json 10)
@@ -172,10 +194,10 @@ write_system() {
   jq -n --arg label "$label" --argjson run "$run" --arg result "$(basename "$result")" --arg commit "$commit" \
     --arg snapshot "$snapshot" --argjson cores "$cores" --argjson sampleSeconds "$SAMPLE_SECONDS" \
     --slurpfile k6 "$result" --argjson cpu "$cpu" --argjson database "$database" --argjson topQueries "$queries" \
-    --argjson redis "$redis" --argjson notes "$notes" '
+    --argjson redis "$redis" --argjson notes "$notes" --argjson replica "$replica" --argjson replicaQueries "$replica_queries" '
     {label: $label, run: $run, result: $result, commit: $commit, snapshot: $snapshot, window: $k6[0].window,
      sampleSeconds: $sampleSeconds, cpu: {cores: $cores, containers: $cpu}, database: $database,
-     topQueries: $topQueries, redis: $redis, notes: $notes}' >"${result%.json}.system.json"
+     topQueries: $topQueries, replica: {database: $replica, topQueries: $replicaQueries}, redis: $redis, notes: $notes}' >"${result%.json}.system.json"
 }
 
 echo "Step \"$label\" at $commit: $RUNS run$([[ $RUNS -eq 1 ]] || echo s) at $rate req/s, each from the seeded snapshot"

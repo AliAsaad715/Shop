@@ -31,8 +31,10 @@ perf/compare.sh              # writes perf/results/comparison.md
 ```
 
 Copy each step's overall row from `comparison.md` into the plan's results table, and commit `perf/results/`: the
-plan uses the files as exhibits. Every step runs at 1,000 req/s, the rate the baseline barely handled
-([how it was chosen](results/baseline/README.md#the-rate)).
+plan uses the files as exhibits. The historical baseline ran at 1,000 req/s
+([how it was chosen](results/baseline/README.md#the-rate)). When the current machine cannot sustain that rate,
+use the same lower rate for both versions of a new paired comparison and document it; different rates or CPU
+allocations do not establish a speed-up against the historical baseline.
 
 ## The dataset: seed.sh
 
@@ -77,6 +79,13 @@ Each snapshot takes as much disk as its database. Database-level settings (`ALTE
 the project has none.
 
 ## A step: run.sh
+
+With the replica profile running, each `.system.json` also records `replica.database` (connections, active/waiting
+sessions during the measured window) and `replica.topQueries`, alongside the existing primary statistics and
+`db-replica` CPU. `DATABASE_SERVICE=db-replica perf/top-queries.sh json 10` inspects the standby directly. Its
+extension must first be created on the primary and replayed; the tool never attempts CREATE EXTENSION on a
+read-only server. Statement and Redis counters cover setup, warm-up and measurement; connection/CPU samples
+cover the measured window. These additional fields are optional for historical results.
 
 `perf/run.sh <label> <rate>` runs `load.js` three times, restoring the snapshot before each run. A run creates about
 10,000 orders, all for the five customers that read "my orders", so without the restore their histories, and that
