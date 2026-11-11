@@ -48,12 +48,18 @@ def setup: {rate: .settings.rate, warmup: .settings.warmup, duration: .settings.
   "page size": .settings.pageSize, products: .dataset.products, categories: .dataset.categories,
   customers: "\(.dataset.customers) \(.dataset.customerSource)"};
 
-# The latest valid runs of each label: the baseline first, then the steps in the order they were run
-(map(select(.result.valid)) | group_by(.result.label)
-  | map({label: .[0].result.label, runs: (sort_by(.result.startedAt) | .[-$keep:])})
+# Each label at the rate it was last run at, so a step measured again at another rate never mixes the two: its latest
+# valid runs there, the invalid ones, and how many runs at other rates are left out
+(group_by(.result.label) | map(sort_by(.result.startedAt) as $all
+  | ($all[-1].result.settings.rate) as $rate
+  | ($all | map(select(.result.settings.rate == $rate))) as $current
+  | {label: $all[0].result.label, rate: $rate,
+     runs: ($current | map(select(.result.valid)) | .[-$keep:]),
+     invalid: ($current | map(select(.result.valid | not)) | length),
+     others: ($all | map(select(.result.settings.rate != $rate)))})) as $labels
+# The steps with valid runs: the baseline first, then the steps in the order they were run
+| ($labels | map(select(.runs | length > 0))
   | sort_by(if .label == $baseline then "" else .runs[0].result.startedAt end)) as $steps
-| (map(select(.result.valid | not)) | group_by(.result.label) | map({key: .[0].result.label, value: length})
-  | from_entries) as $invalid
 | ($steps | map(select(.label == $baseline)) | .[0]) as $base
 | (reduce ($steps[].runs[].result.endpoints | keys_unsorted[]) as $name ([];
     if any(.[]; . == $name) then . else . + [$name] end)) as $endpoints
@@ -139,7 +145,11 @@ def setup: {rate: .settings.rate, warmup: .settings.warmup, duration: .settings.
       | "- \($label) ran differently from the baseline, so its numbers don't compare: \(join("; ")).\n"),
     ($steps[] | select(.runs | length < $keep) | (.runs | length) as $n
       | "- \(.label) has only \($n) valid run\(if $n == 1 then "" else "s" end).\n"),
-    ($invalid | to_entries[] | "- \(.key): \(.value) invalid run\(if .value == 1 then "" else "s" end) left out.\n"),
+    ($labels[] | select(.invalid > 0)
+      | "- \(.label): \(.invalid) invalid run\(if .invalid == 1 then "" else "s" end) at \(.rate) req/s left out.\n"),
+    ($labels[] | select(.others | length > 0) | (.others | length) as $n
+      | "- \(.label): \($n) earlier run\(if $n == 1 then "" else "s" end) at \([.others[].result.settings.rate] | unique
+        | map(tostring) | join(" and ")) req/s left out; the step was measured again at \(.rate) req/s.\n"),
     ($steps[] | select(any(.runs[].result.dataset.customerSource; . == "registered"))
       | "- \(.label) used customers registered for the run, so my_orders read empty order lists.\n")
   ] | if length == 0 then "Nothing to flag: every step ran with the baseline's settings and data.\n" else join("") end)
