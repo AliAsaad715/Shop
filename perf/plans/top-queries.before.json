@@ -1,0 +1,115 @@
+{
+  "phase": "before",
+  "commit": "r3-baseline-4-gff5bb18-dirty",
+  "startedAt": "2026-11-10T17:18:38.722Z",
+  "rate": 400,
+  "warmup": "20s",
+  "duration": "60s",
+  "paging": "page",
+  "note": "One run on battery, to rank queries by database time; not a measured step",
+  "overall": {
+    "requests": 24003,
+    "rps": 400.1,
+    "p50Ms": 2.7,
+    "p95Ms": 7.4,
+    "p99Ms": 11.7,
+    "maxMs": 258,
+    "errorRate": 0,
+    "bytesReceived": 129899648
+  },
+  "productList": {
+    "route": "GET /api/v1/products",
+    "share": 0.4,
+    "requests": 9600,
+    "rps": 160,
+    "p50Ms": 2.8,
+    "p95Ms": 5.2,
+    "p99Ms": 9.4,
+    "maxMs": 65.5,
+    "errorRate": 0,
+    "bytesReceived": 105207037
+  },
+  "statementMs": 7536,
+  "topQueries": [
+    {
+      "calls": 8305,
+      "totalMs": 1817.0,
+      "meanMs": 0.219,
+      "rows": 167836,
+      "share": 0.2411,
+      "query": "SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p WHERE p.category_id = $1 ORDER BY p.created_at DESC, p.id LIMIT $2 OFFSET $3 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id"
+    },
+    {
+      "calls": 10355,
+      "totalMs": 938.5,
+      "meanMs": 0.091,
+      "rows": 10355,
+      "share": 0.1245,
+      "query": "SELECT count(*)::int FROM products.products AS p WHERE p.category_id = $1"
+    },
+    {
+      "calls": 1115,
+      "totalMs": 935.5,
+      "meanMs": 0.839,
+      "rows": 1115,
+      "share": 0.1241,
+      "query": "SELECT count(*)::int FROM products.products AS p"
+    },
+    {
+      "calls": 2840,
+      "totalMs": 731.7,
+      "meanMs": 0.258,
+      "rows": 2840,
+      "share": 0.0971,
+      "query": "SELECT count(*)::int FROM orders.orders AS o WHERE o.customer_id = $1"
+    },
+    {
+      "calls": 44260,
+      "totalMs": 543.1,
+      "meanMs": 0.012,
+      "rows": 0,
+      "share": 0.0721,
+      "query": "DISCARD ALL"
+    },
+    {
+      "calls": 11359,
+      "totalMs": 466.2,
+      "meanMs": 0.041,
+      "rows": 11359,
+      "share": 0.0619,
+      "query": "SELECT p.id, p.name, p.description, p.price, p.image_path, p.category_id, c.name, p.created_at FROM products.products AS p INNER JOIN products.categories AS c ON p.category_id = c.id WHERE p.id = $1 LIMIT $2"
+    },
+    {
+      "calls": 2558,
+      "totalMs": 459.6,
+      "meanMs": 0.180,
+      "rows": 50971,
+      "share": 0.0610,
+      "query": "SELECT o.id, o.customer_id, o.status, o.total, ( SELECT COALESCE(sum(o0.quantity), $4)::int FROM orders.order_lines AS o0 WHERE o.id = o0.order_id), o.created_at, o.updated_at FROM orders.orders AS o WHERE o.customer_id = $1 ORDER BY o.created_at DESC, o.id DESC LIMIT $2 OFFSET $3"
+    },
+    {
+      "calls": 2824,
+      "totalMs": 415.8,
+      "meanMs": 0.147,
+      "rows": 2824,
+      "share": 0.0552,
+      "query": "INSERT INTO orders.order_lines (id, line_total, order_id, product_id, product_name, quantity, unit_price) VALUES ($1, $2, $3, $4, $5, $6, $7)"
+    },
+    {
+      "calls": 2050,
+      "totalMs": 411.7,
+      "meanMs": 0.201,
+      "rows": 41600,
+      "share": 0.0546,
+      "query": "SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p WHERE p.category_id = $1 ORDER BY p.created_at DESC, p.id LIMIT $2 OFFSET $2 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id"
+    },
+    {
+      "calls": 876,
+      "totalMs": 277.5,
+      "meanMs": 0.317,
+      "rows": 17506,
+      "share": 0.0368,
+      "query": "SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p ORDER BY p.created_at DESC, p.id LIMIT $1 OFFSET $2 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id"
+    }
+  ]
+}

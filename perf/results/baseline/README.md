@@ -1,9 +1,59 @@
 # Baseline (task R3-03)
 
+Measured again on 2026-11-10, the baseline at 1,000 requests per second has a p50 of 2.8 ms, a p95 of 11.3 ms and a
+p99 of 23.2 ms, the median of three valid runs; a fourth run collapsed. Every later step compares with these runs. The
+first measurement, two days earlier, follows below.
+
+## Measured again (2026-11-10)
+
+Two things changed how a run measures after the first baseline, so it ran again on `r3-rebaseline`: `main` with
+R3-04's `pg_stat_statements` on, and `run.sh` restoring the seed before every run. In the first measurement, runs 2
+and 3 started from the orders run 1 had created: about 10,000, all for the five customers that read "my orders", so
+that endpoint got heavier with every run. Same laptop, on mains power, with Rider and Chrome open.
+
+| Run | Started (UTC) | p50 ms | p95 ms | p99 ms | Valid | Most connections | Postgres CPU |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 18:29 | 3.0 | 11.3 | 30.0 | yes | 69 | 1.0 cores |
+| 2 | 18:32 | 3,357 | 7,331 | 10,000 | no: collapsed | 99 | 2.75 |
+| 3 | 18:36 | 2.8 | 12.2 | 23.2 | yes | 82 | 1.0 |
+| 4 | 18:41 | 2.7 | 8.6 | 19.0 | yes | 64 | 0.98 |
+| **Median of the valid runs** | | **2.8** | **11.3** | **23.2** | | | |
+
+Per endpoint, the median of the valid runs:
+
+| Endpoint | req/s | p50 ms | p95 ms | p99 ms |
+| --- | --- | --- | --- | --- |
+| `product_list` | 400 | 2.8 | 6.9 | 18.0 |
+| `product_details` | 400 | 2.4 | 6.8 | 21.3 |
+| `categories` | 50 | 1.7 | 4.9 | 12.4 |
+| `my_orders` | 100 | 3.6 | 7.7 | 18.9 |
+| `create_order` | 50 | 8.5 | 23.2 | 54.9 |
+
+What the system did:
+
+- **The healthy runs split the work as before**: the api at 2.5 cores, Postgres at 1, k6 at half a core. But the
+  connections reached 64 to 82, where the first measurement saw 25 to 30: requests now pile up for moments at a time.
+- **Run 2 collapsed.** When requests queue, the app's connection pool opens more connections, up to its default of
+  100, which is also all Postgres allows. Every extra connection makes each query's snapshot dearer
+  (`LWLock:ProcArray`, the most common wait in that run), so Postgres went to 2.75 cores, served less, and the queue
+  grew: k6 could only send 130,394 of about 180,000 requests. No checkpoint ran in that window.
+- **1,000 req/s is now at the edge of what this laptop holds**: its 4 cores already run about 4.5 threads' worth, and
+  `pg_stat_statements` adds a little. `perf/compare.sh` leaves collapsed runs out and says so.
+- **A candidate fix**: a connection pool smaller than what Postgres allows (`Maximum Pool Size`) makes requests wait in
+  the app instead of crowding Postgres. It's a change of its own, with its own row.
+
+The row for the plan's results table:
+
+| Run | p50 (ms) | p95 (ms) | p99 (ms) | Cache hit ratio | What the system did |
+| --- | --- | --- | --- | --- | --- |
+| Baseline | 2.8 | 11.3 | 23.2 | – | api at 2.5 cores, Postgres at 1; one run in four collapsed as connections reached 99 |
+
+## First measurement (2026-11-08)
+
 The app as it is holds 1,000 requests per second on the seeded data, with a p50 of 2.9 ms, a p95 of 9.2 ms and a p99
 of 21.0 ms, the median of three runs. At 1,200 requests per second it collapses.
 
-## What was measured
+### What was measured
 
 | | |
 | --- | --- |
@@ -14,7 +64,7 @@ of 21.0 ms, the median of three runs. At 1,200 requests per second it collapses.
 | Machine | One laptop: Intel i7-6820HQ, 4 cores and 8 threads, 15 GB RAM. The stack and k6 all ran in Docker |
 | When | 2026-11-08, 18:21 to 18:32 UTC |
 
-## Results
+### Results
 
 | Run | Started (UTC) | p50 ms | p95 ms | p99 ms | max ms | Errors | Dropped |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -40,7 +90,7 @@ to. The row for the plan's results table:
 | --- | --- | --- | --- | --- | --- |
 | Baseline | 2.9 | 9.2 | 21.0 | – | api at 2.5 cores, Postgres at 1; p99 flat until a checkpoint stalled WAL writes in run 3 |
 
-## The rate
+### The rate
 
 Every step runs at 1,000 req/s, the highest rate the baseline held. Each probe was one run, a 20 s warm-up then 60 s
 measured:
@@ -62,7 +112,7 @@ machine runs out of CPU, about 7 of its 8 threads busy: requests queue, the conn
 Postgres allows, Postgres starts waiting on its own locks (`LWLock:LockManager`, `LWLock:ProcArray`), and only 766
 of the 1,200 requests a second are sent at all.
 
-## What the system did
+### What the system did
 
 - **Run 1.** The api was the busiest container at 2.6 cores (100% is one core). Postgres used 1.0 core, k6 half a
   core, the warehouse and its database 0.4 between them. At most 25 connections, about one active on average, and at
@@ -87,7 +137,7 @@ What that adds up to:
   pool grew to all 100 connections Postgres allows, so even the sampler couldn't connect. It didn't happen again in
   the 11 runs at up to 1,000 req/s that followed, and `run.sh` now keeps its database session from the start.
 
-## Already in place
+### Already in place
 
 Some fixes the plan expects to make are already in the code, so R3-05 and R3-06 should start from `EXPLAIN` and
 `pg_stat_statements` rather than from these:
@@ -100,7 +150,7 @@ Some fixes the plan expects to make are already in the code, so R3-05 and R3-06 
 What's left to look at: a `COUNT(*)` on every list page (`product_list`, `my_orders`), deep `OFFSET` pages, and the
 `sum(quantity)` subquery `my_orders` runs for every order on its page.
 
-## For the next steps
+### For the next steps
 
 - **Prediction to test:** logging SQL commands at `Warning` instead of `Information` cuts the api's CPU by a large
   share and lowers the p99. It's a step of its own, with its own row, not part of the plan's four.

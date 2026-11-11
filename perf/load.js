@@ -129,7 +129,32 @@ function readCatalog() {
   }
 
   products.sort();
-  return { lists, allPages: pagesOf(products.length), products };
+  const all = { category: null, pages: pagesOf(products.length) };
+
+  // Since R3-05 the API pages by cursor too: a client shows page 1, then follows each page's nextCursor. Where it
+  // does, the cursor that starts every page is collected here, so a deep page is asked for the way a client would
+  // reach it; against an API without cursors, pages stay numbered
+  const cursors = 'nextCursor' in getJson(`/api/v1/products?pageSize=${PAGE_SIZE}`);
+  if (cursors) {
+    [...lists, all].forEach((list) => {
+      list.cursors = pageCursors(list.category);
+    });
+  }
+
+  return { lists, all, products, paging: cursors ? 'cursor' : 'page' };
+}
+
+// The cursor each page of a list starts after, page 2 onwards, by walking the list a page at a time
+function pageCursors(category) {
+  const filter = category ? `category=${category}&` : '';
+  const cursors = [];
+  let body = getJson(`/api/v1/products?${filter}pageSize=${PAGE_SIZE}`);
+  while (body.nextCursor) {
+    cursors.push(body.nextCursor);
+    body = getJson(`/api/v1/products?${filter}pageSize=${PAGE_SIZE}&cursor=${encodeURIComponent(body.nextCursor)}`);
+  }
+
+  return cursors;
 }
 
 // Customers for "my orders" and new orders. Seeded customers (CUSTOMER_EMAILS) bring real order histories;
@@ -205,9 +230,11 @@ function getJson(path) {
 
 // One list request in ten shows all products; the rest browse a category, the popular ones more often
 export function productList(data) {
-  const list = Math.random() < 0.1 ? { category: null, pages: data.allPages } : data.lists[zipf(data.lists.length)];
+  const list = Math.random() < 0.1 ? data.all : data.lists[zipf(data.lists.length)];
   const category = list.category ? `category=${list.category}&` : '';
-  send('product_list', `/api/v1/products?${category}page=${pickPage(list.pages)}&pageSize=${PAGE_SIZE}`);
+  const page = pickPage(list.pages);
+  const where = page > 1 && list.cursors ? `cursor=${encodeURIComponent(list.cursors[page - 2])}` : `page=${page}`;
+  send('product_list', `/api/v1/products?${category}${where}&pageSize=${PAGE_SIZE}`);
 }
 
 export function productDetails(data) {
@@ -346,7 +373,7 @@ export function handleSummary(data) {
     commit: COMMIT,
     startedAt: setup.startedAt,
     api: API,
-    settings: { rate: RATE, warmup: WARMUP, duration: DURATION, pageSize: PAGE_SIZE },
+    settings: { rate: RATE, warmup: WARMUP, duration: DURATION, pageSize: PAGE_SIZE, paging: setup.paging },
     dataset: {
       categories: setup.lists.length,
       products: setup.products.length,

@@ -1,0 +1,24 @@
+SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p WHERE (p.created_at, p.id) < ('2023-11-06 17:12:38.146512+00', '525ba0fa-9705-8f25-09c9-5b04ce54e228') ORDER BY p.created_at DESC, p.id DESC LIMIT 21 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id DESC;
+
+Sort  (cost=44.88..44.94 rows=21 width=365) (actual time=0.068..0.071 rows=21.00 loops=1)
+  Sort Key: p.created_at DESC, p.id DESC
+  Sort Method: quicksort  Memory: 32kB
+  Buffers: shared hit=5
+  ->  Hash Join  (cost=1.73..44.42 rows=21 width=365) (actual time=0.034..0.057 rows=21.00 loops=1)
+        Hash Cond: (p.category_id = c.id)
+        Buffers: shared hit=5
+        ->  Limit  (cost=0.28..42.70 rows=21 width=358) (actual time=0.007..0.019 rows=21.00 loops=1)
+              Buffers: shared hit=4
+              ->  Index Scan using "IX_products_created_at_id" on products p  (cost=0.28..48.75 rows=24 width=358) (actual time=0.006..0.016 rows=21.00 loops=1)
+                    Index Cond: (ROW(created_at, id) < ROW('2023-11-06 17:12:38.146512+00'::timestamp with time zone, '525ba0fa-9705-8f25-09c9-5b04ce54e228'::uuid))
+                    Index Searches: 1
+                    Buffers: shared hit=4
+        ->  Hash  (cost=1.20..1.20 rows=20 width=23) (actual time=0.018..0.019 rows=20.00 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 10kB
+              Buffers: shared hit=1
+              ->  Seq Scan on categories c  (cost=0.00..1.20 rows=20 width=23) (actual time=0.005..0.009 rows=20.00 loops=1)
+                    Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=7
+Planning Time: 0.235 ms
+Execution Time: 0.099 ms

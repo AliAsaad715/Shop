@@ -1,0 +1,10 @@
+SELECT count(*)::int FROM products.products AS p;
+
+Aggregate  (cost=195.89..195.90 rows=1 width=4) (actual time=1.061..1.061 rows=1.00 loops=1)
+  Buffers: shared hit=27
+  ->  Index Only Scan using "PK_products" on products p  (cost=0.28..183.37 rows=5006 width=0) (actual time=0.030..0.656 rows=5006.00 loops=1)
+        Heap Fetches: 0
+        Index Searches: 1
+        Buffers: shared hit=27
+Planning Time: 0.038 ms
+Execution Time: 1.097 ms

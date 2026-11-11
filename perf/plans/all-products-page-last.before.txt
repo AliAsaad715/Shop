@@ -1,0 +1,23 @@
+SELECT p0.id, p0.name, p0.description, p0.price, p0.image_path, p0.category_id, c.name, p0.created_at FROM ( SELECT p.id, p.category_id, p.created_at, p.description, p.image_path, p.name, p.price FROM products.products AS p ORDER BY p.created_at DESC, p.id LIMIT 20 OFFSET 4980 ) AS p0 INNER JOIN products.categories AS c ON p0.category_id = c.id ORDER BY p0.created_at DESC, p0.id;
+
+Nested Loop  (cost=615.11..622.34 rows=20 width=365) (actual time=4.047..4.075 rows=20.00 loops=1)
+  Join Filter: (c.id = p.category_id)
+  Rows Removed by Join Filter: 185
+  Buffers: shared hit=246
+  ->  Limit  (cost=615.11..615.16 rows=20 width=358) (actual time=4.034..4.038 rows=20.00 loops=1)
+        Buffers: shared hit=245
+        ->  Sort  (cost=602.66..615.18 rows=5006 width=358) (actual time=3.516..3.808 rows=5000.00 loops=1)
+              Sort Key: p.created_at DESC, p.id
+              Sort Method: quicksort  Memory: 2918kB
+              Buffers: shared hit=245
+              ->  Seq Scan on products p  (cost=0.00..295.06 rows=5006 width=358) (actual time=0.007..0.785 rows=5006.00 loops=1)
+                    Buffers: shared hit=245
+  ->  Materialize  (cost=0.00..1.30 rows=20 width=23) (actual time=0.000..0.001 rows=10.25 loops=20)
+        Storage: Memory  Maximum Storage: 17kB
+        Buffers: shared hit=1
+        ->  Seq Scan on categories c  (cost=0.00..1.20 rows=20 width=23) (actual time=0.005..0.006 rows=20.00 loops=1)
+              Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=4
+Planning Time: 0.232 ms
+Execution Time: 4.094 ms

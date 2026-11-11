@@ -105,10 +105,10 @@ namespace Shop.Modules.Products.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedAt", "Id")
-                        .IsDescending(true, false);
+                        .IsDescending();
 
                     b.HasIndex("CategoryId", "CreatedAt", "Id")
-                        .IsDescending(false, true, false);
+                        .IsDescending(false, true, true);
 
                     b.ToTable("products", "products", t =>
                         {

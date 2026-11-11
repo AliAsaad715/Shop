@@ -50,10 +50,10 @@ public sealed class ProductsSchemaTests
         context.ChangeTracker.Clear();
 
         var catalog = context.Products.Where(product => product.CategoryId == categories[0].Id)
-            .OrderByDescending(product => product.CreatedAt).ThenBy(product => product.Id);
+            .OrderByDescending(product => product.CreatedAt).ThenByDescending(product => product.Id);
         var firstPage = await catalog.Take(2).ToListAsync();
         var secondPage = await catalog.Skip(2).Take(2).ToListAsync();
-        var tiedIds = new[] { first.Id, second.Id }.Order().ToArray();
+        var tiedIds = new[] { first.Id, second.Id }.OrderDescending().ToArray();
         Assert.Equal(new[] { newest.Id, tiedIds[0], tiedIds[1] }, firstPage.Concat(secondPage).Select(product => product.Id));
         Assert.All(firstPage.Concat(secondPage), product => Assert.Equal(19.95m, product.Price));
         Assert.All(firstPage.Concat(secondPage), product => Assert.Equal(TimeSpan.Zero, product.CreatedAt.Offset));

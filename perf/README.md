@@ -10,6 +10,7 @@ These tools measure each step of Requirement 3 the same way, on the same data, s
 | [`run.sh`](run.sh) | R3-02b | Runs a step: restores the snapshot, runs `load.js` three times, and records what the system did |
 | [`compare.sh`](compare.sh) | R3-02b | Builds [`results/comparison.md`](results), the before/after report with a noise check |
 | [`top-queries.sh`](top-queries.sh) | R3-04 | Lists the queries with the most database time, from `pg_stat_statements` |
+| [`explain.sh`](explain.sh), [`plans/`](plans) | R3-05 | Shows a query's real plan, `EXPLAIN (ANALYZE, BUFFERS)`; the top queries' plans before and after keyset paging |
 
 They need Docker, bash and jq (`sudo apt install jq`, or `brew install jq`); `run.sh` runs k6 from its Docker image.
 
@@ -74,9 +75,13 @@ the project has none.
 
 ## A step: run.sh
 
-`perf/run.sh <label> <rate>` restores the snapshot, then runs `load.js` three times. Runs 2 and 3 continue from run
-1's data, as the plan's restore before each label intends. Run 1 starts with a freshly restarted app, which is what
-the 30 s warm-up is for.
+`perf/run.sh <label> <rate>` runs `load.js` three times, restoring the snapshot before each run. A run creates about
+10,000 orders, all for the five customers that read "my orders", so without the restore their histories, and that
+endpoint's work, would grow from run to run. Each run starts with a freshly restarted app, which is what the 30 s
+warm-up is for.
+
+Measure on mains power: on battery, the laptop the baseline ran on slows its CPU, and 1,000 req/s that it held then
+collapses.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -115,6 +120,21 @@ It reads `pg_stat_statements`, which Postgres loads at startup (`compose.yaml`);
 needs `docker compose up -d postgres` once. The extension lives in the maintenance database `postgres`, so the app's
 schema and the snapshot stay as they are, and the perf tools' own queries are left out of the list. `run.sh` resets
 the counts before every run and saves the top ten in each `.system.json`.
+
+## A query's plan: explain.sh
+
+`perf/explain.sh` runs a query from stdin through `EXPLAIN (ANALYZE, BUFFERS)` on the app's database, twice, and prints
+the query with the second plan, so a cold cache doesn't decide it. Paste a query from `top-queries.sh` with its `$1`,
+`$2` replaced by real values:
+
+```sh
+perf/explain.sh <<'SQL' > perf/plans/my-query.before.txt
+SELECT count(*)::int FROM orders.orders AS o WHERE o.customer_id = '9b11f2b6-c864-10c9-2923-3afa11655811'
+SQL
+```
+
+`ANALYZE` really runs the query, so the script refuses anything that writes. [`plans/README.md`](plans/README.md) has
+R3-05's plans and what they showed.
 
 ## The report: compare.sh
 
