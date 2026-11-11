@@ -186,7 +186,7 @@ api=${API_URL:-http://localhost:$(docker compose port api 8080 | sed 's/.*://')}
 cores=$(docker info --format '{{.NCPU}}')
 snapshot=$(app_sql -c "SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = current_database() || '_snapshot'")
 # Container names to compose services, so the results say "api" rather than "shop-api-1"
-names=$(docker compose ps --format json | jq -s --arg k6 "$K6_CONTAINER" 'flatten | map({(.Name): .Service}) | add + {($k6): "k6"}')
+names=$(docker compose --profile replica ps --format json | jq -s --arg k6 "$K6_CONTAINER" 'flatten | map({(.Name): .Service}) | add + {($k6): "k6"}')
 
 k6_env=(-e "API_URL=$api" -e "RATE=$rate" -e "LABEL=$label" -e "COMMIT=$commit" -e "RESULTS_DIR=$dir")
 for name in WARMUP DURATION CUSTOMER_EMAILS CUSTOMER_PASSWORD CUSTOMERS ETAGS ONLY; do

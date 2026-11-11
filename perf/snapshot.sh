@@ -17,6 +17,7 @@ cd "$(dirname "$0")/.."
 DATABASES=(postgres inventory-db) # the compose services whose POSTGRES_DB is saved
 CLIENTS=(inventory api)           # the services connected to them, in the order they start
 REDIS_SERVICE=${REDIS_SERVICE:-redis}
+REPLICA_SERVICE=${REPLICA_SERVICE:-db-replica}
 
 # Runs SQL from stdin on a service's Postgres, connected to its maintenance database. The container's own settings
 # name the user and the database; the psql variables db, snap and tmp carry the names into the SQL
@@ -118,6 +119,30 @@ SQL
   status
 }
 
+# The replica (task R3-10), when it runs, copies the restored databases as well, by replaying the primary's WAL; the
+# app restarts only once it has, so a run never starts while the replica is still copying
+wait_for_replica() {
+  docker compose --profile replica ps --status running --services | grep -qx "$REPLICA_SERVICE" || return 0
+  local target
+  target=$(sql postgres <<'SQL'
+SELECT pg_current_wal_lsn()
+SQL
+)
+  for _ in $(seq 120); do
+    if [[ $(docker compose --profile replica exec -T "$REPLICA_SERVICE" sh -c \
+        'exec psql -X -q -At -U "$POSTGRES_USER" -d postgres -v lsn="$1"' sh "$target" <<'SQL'
+SELECT pg_last_wal_replay_lsn() >= :'lsn'::pg_lsn
+SQL
+) == t ]]; then
+      echo "$REPLICA_SERVICE has replayed the restore"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "$REPLICA_SERVICE hasn't replayed the restore after 120 s; perf/replica-lag.sh shows how far behind it is" >&2
+  exit 1
+}
+
 # Copies the snapshot to a temporary database first, so the live one is only replaced once the copy has worked
 restore() {
   require_stack
@@ -145,6 +170,7 @@ SQL
     echo "Emptied $REDIS_SERVICE"
   fi
 
+  wait_for_replica
   start_clients
   echo "Restored the snapshot"
 }
