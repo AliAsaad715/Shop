@@ -92,7 +92,7 @@ def setup: {rate: .settings.rate, warmup: .settings.warmup, duration: .settings.
   (if $base == null then "There is no \"\($baseline)\" step yet, so no changes are shown.\n" else empty end),
   "## Overall",
   "",
-  (["Step", "Runs", "Commit", "p50", "p95", "p99", "Errors", "Cache hit ratio"] | row),
+  (["Step", "Runs", "Commit", "p50", "p95", "p99", "Errors", "Redis keyspace hit ratio"] | row),
   ([range(8) | "---"] | row),
   ($steps[] | . as $step | [
     .label, (.runs | length | tostring), ([.runs[].result.commit] | unique | join(", ")),
@@ -150,7 +150,12 @@ def setup: {rate: .settings.rate, warmup: .settings.warmup, duration: .settings.
       | .label as $label
       | [$mine | keys_unsorted[] | select($mine[.] != $theirs[.]) | "\(.) \($mine[.]), not \($theirs[.])"]
       | select(length > 0)
-      | "- \($label) ran differently from the baseline, so its numbers don't compare: \(join("; ")).\n"),
+      | "- \($label) ran differently from the reference step \($baseline), so its numbers don't compare: \(join("; ")).\n"),
+    ($steps[] | select(.label != $baseline and $base != null)
+      | ([.runs[].system.cpu.cores // empty] | unique) as $mine
+      | ([$base.runs[].system.cpu.cores // empty] | unique) as $theirs
+      | select(($mine | length) > 0 and ($theirs | length) > 0 and $mine != $theirs)
+      | "- \(.label) used \($mine | join(", ")) Docker CPUs; reference step \($baseline) used \($theirs | join(", ")). CPU allocation also differs.\n"),
     ($steps[] | select(.runs | length < $keep) | (.runs | length) as $n
       | "- \(.label) has only \($n) valid run\(if $n == 1 then "" else "s" end).\n"),
     ($labels[] | select(.invalid > 0)

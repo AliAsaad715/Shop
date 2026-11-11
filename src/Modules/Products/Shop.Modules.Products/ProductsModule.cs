@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Shop.Modules.Products.Catalog;
 using Shop.Modules.Products.Contracts;
 using Shop.Modules.Products.Creation;
@@ -11,6 +12,7 @@ using Shop.Modules.Products.Images;
 using Shop.Modules.Products.Inventory;
 using Shop.Modules.Products.Seeding;
 using Shop.SharedKernel.Persistence;
+using Shop.SharedKernel.Caching;
 
 namespace Shop.Modules.Products;
 
@@ -20,6 +22,19 @@ public static class ProductsModule
     {
         services.AddModuleDbContext<ProductsDbContext>(ProductsDbContext.Schema);
         services.AddInventoryClient();
+        services.AddShopCaching();
+        services.AddScoped<CachedCatalogReader>();
+        services.AddScoped<CatalogCacheInvalidator>();
+        services.AddOptions<CatalogCacheOptions>().BindConfiguration(CatalogCacheOptions.Section)
+            .Validate(options => options.ProductTtl > TimeSpan.Zero && options.CategoriesTtl > TimeSpan.Zero
+                && options.ListTtl > TimeSpan.Zero && options.LocalTtl > TimeSpan.Zero, "CatalogCache TTLs must be positive.")
+            .Validate(options => options.LocalTtl <= options.ProductTtl && options.LocalTtl <= options.CategoriesTtl
+                && options.LocalTtl <= options.ListTtl, "CatalogCache:LocalTtl must not exceed a distributed TTL.")
+            .Validate(options => options.MaxCachedPage is >= 1 and <= 3, "CatalogCache:MaxCachedPage must be between 1 and 3.")
+            .Validate<IConfiguration>((options, configuration) => !options.Enabled
+                || !string.IsNullOrWhiteSpace(configuration.GetConnectionString("Redis")),
+                "ConnectionStrings:Redis is required when CatalogCache is enabled.")
+            .ValidateOnStart();
         services.AddScoped<IProductCatalog, ProductCatalog>();
         services.AddScoped<IImageStorage, LocalImageStorage>();
         services.AddOptions<ImageStorageOptions>().BindConfiguration("Images")

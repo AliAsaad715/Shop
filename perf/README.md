@@ -99,7 +99,7 @@ pool has taken every connection Postgres allows. It saves what it saw beside the
 | `cpu.containers.<service>` | `avgPercent` and `maxPercent` of one core, during the measured part; `cpu.cores` is how many cores Docker has |
 | `database` | `maxConnections`, `avgActive`, `maxActive` and `maxWaiting` connections to the app's database, and `waitEvents`: how often each wait was seen |
 | `topQueries` | The ten queries with the most total time, as `perf/top-queries.sh json` gives them: `calls`, `totalMs`, `meanMs`, `rows`, their `share` of the time and the full `query`, counted over the whole run |
-| `redis` | `hits`, `misses` and `hitRatio` from Redis (task R3-07); hits in HybridCache's in-memory layer never reach Redis |
+| `redis` | `hits`, `misses` and `hitRatio`: Redis keyspace counters, including HybridCache tag metadata. These cover the whole run, including setup and warm-up; L1 hits never reach Redis |
 | `notes` | What couldn't be recorded yet, such as top queries before R3-04 |
 
 Ctrl+C stops k6, which still saves the run, marked invalid because it was cut short, and `run.sh` starts no more

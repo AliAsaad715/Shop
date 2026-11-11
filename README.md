@@ -332,6 +332,52 @@ Tests in Development read `X-Db-Queries` and fail if a count grows with the data
 order details stays at 1 query with 1 line or 5 and a full history, "my orders" at 2 for 1 or 50 per page, a new order
 at 1 save for 1 line or 5, a status change at 2, and the current user at 1.
 
+## Catalog caching (task R3-07)
+
+Catalog HTTP reads use HybridCache: a five-second in-process copy (L1), then Redis (L2), then PostgreSQL on a miss.
+Redis runs with 128 MB, `allkeys-lru`, and no persistence. Product data without stock lasts 10 minutes, categories
+one hour, and numbered product pages 1-3 last 60 seconds. The key includes the category, page and page size;
+omitted defaults share a key with explicit defaults. Cursor pages and deeper numbered pages bypass the cache.
+The current load test follows cursors after page 1, so about 60% of its list traffic is eligible.
+
+Product metadata and the product/category row versions share one cache entry. Conditional requests reuse that
+snapshot and still fetch live stock before checking the ETag. Redis keys use the `shop:r3:v2:` namespace so the
+versioned payload cannot be confused with the older `shop:r3:v1:` product-only entries; old entries expire normally.
+
+Stock is fetched from the warehouse on every detail request, including warm reads. Order creation's batched
+`IProductCatalog` continues to read current prices directly from PostgreSQL. Orders, authentication state,
+permissions, errors and HTTP headers are never stored in the catalog cache.
+
+Compose supplies `ConnectionStrings__Redis=redis:6379`; local Development uses `localhost:6379`. Redis is published
+only on localhost (`REDIS_PORT`, default 6379). Disable caching with `CatalogCache__Enabled=false`, or
+`CATALOG_CACHE_ENABLED=false` in Compose. `CatalogCache` also configures `ProductTtl`, `CategoriesTtl`, `ListTtl`,
+`LocalTtl` and `MaxCachedPage` (1-3). Enabling caching requires a Redis address. Durations must be positive, and
+the local TTL must not exceed any distributed TTL. Redis outages fall back to database reads with short client
+timeouts; database errors and cancellation still propagate.
+
+After saving a new product, creation invalidates its category's pages and the unfiltered pages. The demo seeder
+does the same only when it adds products. Invalidation has an independent two-second cancellation budget after
+commit; failure is logged and doesn't report an already saved product as failed. TTL bounds stale data when
+invalidation cannot reach Redis. Other app instances can retain their L1 copy for up to its short expiry.
+
+R3-08 should call the internal `CatalogCacheInvalidator.ProductChangedAsync(id, oldCategory, newCategory)` after
+the edit commits. This removes `product:{id}` and invalidates both category tags plus the unfiltered list tag.
+`CategoriesChangedAsync()` removes categories and invalidates catalog bodies that contain category names.
+There is no new PUT endpoint in R3-07. Tags invalidate entries logically; Redis keys can remain until expiry.
+
+`perf/run.sh` already flushes Redis on snapshot restore and resets its statistics before each run. The report's
+**Redis keyspace hit ratio** is `hits / (hits + misses)` (null with no lookups), covering setup, warm-up and measured
+traffic, including tag lookups. It does not measure L1 hits or the percentage of HTTP requests served from cache.
+`CatalogCacheTests` use two hosts with isolated PostgreSQL and Redis to prove L1/L2 hits, expiry, one concurrent
+fill, cancellation, live stock/prices, invalidation and outage behavior. Existing query-count tests disable caching
+explicitly; cold cache fills still contribute to Development's `X-Db-Queries`.
+
+The measured Redis comparison uses **400 req/s on both versions**, three valid runs each: overall p95 fell from
+10.8 to 9.8 ms, catalog-list p95 from 4.9 to 3.2 ms, and categories from 4.3 to 1.1 ms. Redis's keyspace hit ratio
+was 73.7%. [`perf/results/after-redis/README.md`](perf/results/after-redis/README.md) records all attempts, the
+environment and the interpretation; [`comparison.redis.md`](perf/results/comparison.redis.md) isolates the Redis
+change. The historical baseline is at 1,000 req/s with a different CPU allocation, so its deltas don't compare.
+
 ## Product ETags (task R3-09)
 
 `GET /api/v1/products/{id}` labels its answer with an ETag and `Cache-Control: no-cache`: a client may keep the
@@ -353,8 +399,9 @@ The ETag changes whenever anything in the body can:
 
 `If-None-Match` compares weakly, so the `W/"…"` a compressing proxy sends back matches too, as do lists and `*`.
 
-A 304 still reads the product and asks the warehouse, so it saves the transfer and the serialization, not the
-database work; that's what Redis (R3-07) is for. On the wire, a product's answer goes from 796 bytes to 338.
+A 304 reads product metadata and its row versions through HybridCache, then asks the warehouse for live stock.
+Warm metadata avoids PostgreSQL; the ETag independently saves transfer and serialization. With caching disabled,
+revalidation still reads the product once. The original R3-09 measurement reduced a response from 796 bytes to 338.
 
 The security headers make every authenticated response `no-store`, unless its endpoint chose its own caching. Product
 details are the same for everyone, so they choose `no-cache`, and a signed-in browser keeps and revalidates them

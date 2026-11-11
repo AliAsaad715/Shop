@@ -25,6 +25,8 @@ mono_crash.*
 [Dd]ebugPublic/
 [Rr]elease/
 [Rr]eleases/
+# Orders source, not a release build directory.
+!src/Modules/Orders/Shop.Modules.Orders/Releases/
 x64/
 x86/
 [Ww][Ii][Nn]32/

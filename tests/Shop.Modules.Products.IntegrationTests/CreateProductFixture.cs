@@ -48,6 +48,7 @@ public sealed class CreateProductFixture : IAsyncLifetime
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:Shop"] = connectionString,
+            ["CatalogCache:Enabled"] = "false",
             ["Images:RootPath"] = ImageRoot,
             // Required at startup; creating a product never calls the warehouse
             ["Inventory:Address"] = "http://localhost:50051",
