@@ -360,10 +360,10 @@ does the same only when it adds products. Invalidation has an independent two-se
 commit; failure is logged and doesn't report an already saved product as failed. TTL bounds stale data when
 invalidation cannot reach Redis. Other app instances can retain their L1 copy for up to its short expiry.
 
-R3-08 should call the internal `CatalogCacheInvalidator.ProductChangedAsync(id, oldCategory, newCategory)` after
+Product updates call the internal `CatalogCacheInvalidator.ProductChangedAsync(id, oldCategory, newCategory)` after
 the edit commits. This removes `product:{id}` and invalidates both category tags plus the unfiltered list tag.
 `CategoriesChangedAsync()` removes categories and invalidates catalog bodies that contain category names.
-There is no new PUT endpoint in R3-07. Tags invalidate entries logically; Redis keys can remain until expiry.
+Tags invalidate entries logically; Redis keys can remain until expiry.
 
 `perf/run.sh` already flushes Redis on snapshot restore and resets its statistics before each run. The report's
 **Redis keyspace hit ratio** is `hits / (hits + misses)` (null with no lookups), covering setup, warm-up and measured
@@ -377,6 +377,38 @@ The measured Redis comparison uses **400 req/s on both versions**, three valid r
 was 73.7%. [`perf/results/after-redis/README.md`](perf/results/after-redis/README.md) records all attempts, the
 environment and the interpretation; [`comparison.redis.md`](perf/results/comparison.redis.md) isolates the Redis
 change. The historical baseline is at 1,000 req/s with a different CPU allocation, so its deltas don't compare.
+
+## Product updates (task R3-08)
+
+`PUT /api/v1/products/{id}` is Admin-only and accepts JSON containing all four editable fields: `name`,
+`description`, `price` and `categoryId`. It keeps the existing ID, image and creation time. Name and description
+are trimmed, required and limited to 200 and 2000 characters respectively. Price is required, nonnegative and fits
+`numeric(18,2)` without rounding; the selected category must exist. A successful update returns `204 No Content`
+with `Cache-Control: no-store` and does not call the warehouse.
+
+```sh
+curl -i "$API/api/v1/products/$ID" # Save its ETag as OLD_ETAG; this also warms the product cache.
+curl -i "$API/api/v1/products?category=$CATEGORY_ID" # Warm its category's list.
+curl -i -X PUT "$API/api/v1/products/$ID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  --data "{\"name\":\"Updated product\",\"description\":\"Updated description\",\"price\":29.95,\"categoryId\":\"$CATEGORY_ID\"}"
+# 204 No Content
+curl -i -H "If-None-Match: $OLD_ETAG" "$API/api/v1/products/$ID"
+# 200 with the updated data and a new ETag; sending the new ETag returns 304.
+curl -i "$API/api/v1/products?category=$CATEGORY_ID" # The list also shows the edit immediately on this host.
+```
+
+The handler reads and saves the tracked product directly in PostgreSQL, then invalidates the product and every
+cached page/size of its old category, new category and the unfiltered list. An invalid request or failed save leaves
+the cache intact. Invalidation keeps its independent two-second budget after commit, even if the client disconnects;
+a Redis failure is logged without reporting a committed update as failed. Other hosts' warm L1 copies can remain
+for up to five seconds; Redis and a host with empty L1 observe the invalidation.
+
+Responses use the existing Problem Details contract: 400 for malformed inputs, 401/403 for authorization, 404
+`products.not_found`, 415 for unsupported content, and 422 `common.validation_failed` for invalid fields or an
+unknown category (including deletion between validation and save). An overlapping edit detected by `xmin` returns
+409 `common.concurrency_conflict`. There is no `If-Match` precondition: a client editing an old screen after another
+request has finished is not rejected on that basis. Order creation still reads the current price from PostgreSQL.
 
 ## Product ETags (task R3-09)
 
@@ -394,7 +426,7 @@ The ETag changes whenever anything in the body can:
 - `v` is the product row's version, and `c` its category's, since the body shows the category's name. Both are
   Postgres's `xmin`, the system column holding the transaction that last wrote the row, so every update changes it.
   The migration only maps it; every row always had one. EF now also uses it as a concurrency token: an update or
-  delete names the version it read, which is what R3-08's `If-Match` can turn into a 412.
+  delete names the version it read. R3-08 returns 409 on overlapping saves; it does not implement `If-Match`.
 - `s` is the stock the warehouse reported, which every order changes, or `s?` when the warehouse couldn't answer.
 
 `If-None-Match` compares weakly, so the `W/"…"` a compressing proxy sends back matches too, as do lists and `*`.

@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -10,6 +11,19 @@ namespace Shop.Api.ConformanceTests;
 [Collection("API conformance")]
 public sealed class ApiContractTests(ConformanceFixture fixture)
 {
+    [Fact]
+    public async Task OpenApiDocumentsTheProductUpdateJsonBodyAndResponseContracts()
+    {
+        var document = await fixture.Client.GetFromJsonAsync<JsonElement>("/openapi/v1.json");
+        var operation = document.GetProperty("paths").GetProperty("/api/v1/products/{id}").GetProperty("put");
+        Assert.Equal("UpdateProduct", operation.GetProperty("operationId").GetString());
+        Assert.True(operation.GetProperty("requestBody").GetProperty("content").TryGetProperty("application/json", out _));
+        var responses = operation.GetProperty("responses");
+        foreach (var status in new[] { "204", "400", "401", "403", "404", "409", "415", "422" })
+            Assert.True(responses.TryGetProperty(status, out _), $"Missing documented PUT response {status}");
+        Assert.False(responses.GetProperty("204").TryGetProperty("content", out var content) && content.EnumerateObject().Any());
+    }
+
     [Fact]
     public async Task UnknownRoutesReturn404ProblemDetails()
     {

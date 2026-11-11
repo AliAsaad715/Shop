@@ -39,6 +39,19 @@ The schema, upload and catalog test classes all share the `Products database` co
 
 `DemoSeedTests` starts the Products module with `DemoSeed:Enabled=true` against PostgreSQL and checks that the seeder adds the six demo products with a PNG image each, and that running it again adds nothing and keeps an edited price. It also reads `warehouse/db/002_seed.sql` and fails unless the warehouse stocks exactly the app's demo product IDs, with one unit of product X.
 
+## Product updates and cache invalidation
+
+`UpdateProductTests` uses the existing isolated PostgreSQL/Redis fixture and two independent HTTP hosts. It sends
+real Admin-only JSON PUT requests, verifies 204/no-store, all four required fields and their boundaries, binding and
+Problem Details errors, preserved images/IDs/timestamps, and operation with caching disabled.
+
+Warm-cache tests prove that edits refresh details, ETags and order prices, and moving a product invalidates pages
+1-3 at different sizes for both categories and the unfiltered list. The second host starts with empty L1 and reads
+the rebuilt product from Redis without SQL. Failure tests keep warm entries after an unsuccessful save, return
+409 on a deterministic concurrent edit, and return 422 if the destination category disappears before saving.
+Save-interceptor gates also disconnect a client after commit to prove invalidation still runs; a Redis outage
+cannot turn an already committed PUT into a failure. These fixtures always create their own databases and Redis.
+
 ## ETags
 
 `ProductETagTests` covers product details' ETag (task R3-09): its form, `"v{product}-c{category}-s{stock}"`, with `Cache-Control: no-cache`; a 304 with no body and the same headers for the current ETag, also weakened (`W/`), in a list or as `*`; a new ETag after the stock changes, the product is edited or its category renamed; an ETag of its own for unknown stock; and none on a 404. `DbQueryCountTests` shows a 304 still reads the product once: an ETag saves the transfer, not the database work.

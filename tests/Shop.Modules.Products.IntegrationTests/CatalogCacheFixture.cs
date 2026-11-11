@@ -50,6 +50,7 @@ public sealed class CatalogCacheFixture : IAsyncLifetime
     public QueryProbe SecondQueries { get; } = new();
     public StockInventory Inventory { get; } = new();
     public SaveFailureInterceptor SaveFailure { get; } = new();
+    public UpdateSaveProbe Saves { get; } = new();
     public Guid Category { get; private set; }
     public Guid OtherCategory { get; private set; }
     public static Guid ProductId(int n) => Guid.Parse($"019a2180-3000-7000-8000-{n:D12}");
@@ -78,6 +79,7 @@ public sealed class CatalogCacheFixture : IAsyncLifetime
         Inventory.Stock.Clear();
         Inventory.Lookups.Clear();
         SaveFailure.FailNext = false;
+        Saves.Reset();
         App = Build(Queries, settings);
         var second = Build(SecondQueries, settings);
         await using (var scope = App.Services.CreateAsyncScope())
@@ -119,7 +121,7 @@ public sealed class CatalogCacheFixture : IAsyncLifetime
         if (overrides is not null) builder.Configuration.AddInMemoryCollection(overrides);
         builder.Services.AddProductsModule();
         builder.Services.AddSingleton<IInventoryService>(Inventory);
-        builder.Services.AddDbContext<ProductsDbContext>(o => o.AddInterceptors(probe, SaveFailure));
+        builder.Services.AddDbContext<ProductsDbContext>(o => o.AddInterceptors(probe, SaveFailure, Saves));
         builder.Services.AddErrorContract();
         builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, UploadTestAuthentication>("Test", _ => { });
         builder.Services.AddAuthorization(o =>
