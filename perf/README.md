@@ -5,7 +5,7 @@ These tools measure each step of Requirement 3 the same way, on the same data, s
 | File | Task | What it does |
 | --- | --- | --- |
 | [`seed.sh`](seed.sh), [`seed.sql`](seed.sql) | R3-01 | Loads the dataset: 50,000 customers, 5,000 products, 500,000 orders, skewed and the same every time |
-| [`load.js`](load.js) | R3-02 | The k6 load test: a fixed rate of mixed traffic, with p50, p95 and p99 per endpoint |
+| [`load.js`](load.js) | R3-02 | The k6 load test: a fixed rate of mixed traffic, with p50, p95 and p99 per endpoint; since R3-09, product details send their ETag back and count the 304s |
 | [`snapshot.sh`](snapshot.sh) | R3-02b | Saves the seeded databases once, and restores them before every step |
 | [`run.sh`](run.sh) | R3-02b | Runs a step: restores the snapshot, runs `load.js` three times, and records what the system did |
 | [`compare.sh`](compare.sh) | R3-02b | Builds [`results/comparison.md`](results), the before/after report with a noise check |
@@ -87,7 +87,7 @@ collapses.
 | --- | --- | --- |
 | `RUNS` | `3` | How many runs |
 | `CUSTOMER_EMAILS`, `CUSTOMER_PASSWORD` | five seeded customers, `Shopper123!` | Who reads "my orders" and places orders: `customer1` and `customer2` (the heaviest), `customer100`, `customer5000` and `customer40000` |
-| `WARMUP`, `DURATION`, `CUSTOMERS` | as in `load.js` | Passed on to `load.js` |
+| `WARMUP`, `DURATION`, `CUSTOMERS`, `ETAGS`, `ONLY` | as in `load.js` | Passed on to `load.js` |
 
 While each run is measured, `run.sh` samples every container's CPU and the app's database connections every two
 seconds. The database sampler keeps one session open for the whole run, so it still sees the database when the app's
@@ -146,6 +146,10 @@ The noise check marks a change **≈** unless every run of the step was faster t
 every one slower. With three runs each, no change does that by chance more than one time in ten; anything less is
 within run-to-run variation. A step with fewer than three valid runs shows **?** instead.
 
+Each endpoint's table also shows what a response cost on the wire (`Bytes/response`, headers included) and the share
+answered 304 Not Modified (`304s`, task R3-09; `–` for runs from before it counted them). Runs of only part of the mix
+(`ONLY`) measure that part on its own, not a step, so they stay out of the tables and the notes name them.
+
 The report also says what the system did in each step: CPU per container, database connections and waits, and the
 Redis hit ratio. Its notes flag what makes numbers not compare: a different rate, duration or dataset than the
 baseline, invalid runs left out, or customers registered for the run instead of seeded ones.
@@ -175,6 +179,8 @@ A run takes about four minutes with the defaults: setup, a 30 s warm-up, then 3 
 | `CUSTOMER_PASSWORD` | none | Their shared password; required with `CUSTOMER_EMAILS` |
 | `CUSTOMERS` | `5` | Without `CUSTOMER_EMAILS`, how many fresh customers setup registers |
 | `RESULTS_DIR` | `perf/results` | Where the results file goes; it must exist, because k6 doesn't create folders |
+| `ETAGS` | `on` | `off` makes product details forget the ETags they got, so no request sends `If-None-Match`: the same traffic without revalidation, to compare against |
+| `ONLY` | all | Runs only these endpoints' scenarios, comma-separated tags such as `product_details`, at their usual rates. Such a run measures that part of the mix on its own, so it isn't a step, and `compare.sh` leaves it out |
 
 ### The traffic
 
@@ -194,6 +200,11 @@ A run takes about four minutes with the defaults: setup, a 30 s warm-up, then 3 
   page 2 20%, page 3 10%, and a deeper page up to the last 10%, so deep `OFFSET`s show up too.
 - `my_orders` asks for page 1, or page 2 one time in ten. A new order holds one to three products, one unit each.
 - Setup reads every category and product through the API first, so the script needs no IDs from the seed.
+- Product details revalidate like a browser that kept the page (task R3-09): each VU remembers the ETag it last got
+  for each product and sends it back in `If-None-Match`, so an unchanged product costs a 304 with no body. An API
+  without ETags sends none to remember, so against it the requests are the same as before. A VU stands in for a
+  client here, and each one comes back to a product it saw only every few seconds or minutes, depending on how
+  popular the product is.
 
 ### Customers
 
@@ -211,12 +222,14 @@ Each run prints a table and writes the same numbers to `<RESULTS_DIR>/<LABEL>-<s
 
 | Field | Meaning |
 | --- | --- |
-| `overall`, `endpoints.<tag>` | `requests`, `rps`, `p50Ms`, `p95Ms`, `p99Ms`, `maxMs`, `errorRate` (0 to 1) and `bytesReceived`, for the measured part only |
-| `settings`, `dataset` | The rate, warm-up and duration, and how many categories, products and customers the run used |
+| `overall`, `endpoints.<tag>` | `requests`, `rps`, `p50Ms`, `p95Ms`, `p99Ms`, `maxMs`, `errorRate` (0 to 1), `bytesReceived` and `notModified` (the 304s), for the measured part only |
+| `settings`, `dataset` | The rate, warm-up and duration, `etags` (`on` or `off`) and `only` (the endpoints run, or null for the whole mix), and how many categories, products and customers the run used |
 | `window` | When the measured part started and ended |
 | `droppedIterations` | Requests k6 couldn't start on time because every VU was busy |
 | `vus` | VUs allocated, preallocated and the cap; more allocated than preallocated means responses slowed enough that k6 added VUs |
 | `valid`, `problems` | Whether the run counts, and why not |
+
+Below the table, a line says how many responses were 304s and what a response cost on average.
 
 A run counts only with under 1% errors, no dropped iterations, and its full length measured. Otherwise fast
 failures are mixed into the latencies, k6 didn't hold the rate, or the run was stopped early. k6 exits with 99 when a

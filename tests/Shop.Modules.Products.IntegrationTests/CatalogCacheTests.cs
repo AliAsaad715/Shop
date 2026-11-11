@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Shop.SharedKernel.Caching;
 using Shop.Modules.Products.Catalog;
 using Shop.Modules.Products.Contracts;
 using Xunit;
@@ -43,6 +44,76 @@ public sealed class CatalogCacheTests(CatalogCacheFixture fixture) : IClassFixtu
     }
 
     [Fact]
+    public async Task CachedETagsRevalidateFromL1AndRedisButStillUseLiveStock()
+    {
+        var id = CatalogCacheFixture.ProductId(1);
+        fixture.Inventory.Stock[id] = 7;
+        using var first = await fixture.Client.GetAsync($"/api/v1/products/{id}");
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        var etag = first.Headers.ETag!.Tag;
+        await fixture.WaitForRedisAsync(CatalogCacheKeys.Product(id));
+        foreach (var client in new[] { fixture.Client, fixture.Second })
+        {
+            using var revalidated = await ConditionalAsync(client, id, etag);
+            Assert.Equal(HttpStatusCode.NotModified, revalidated.StatusCode);
+            Assert.Equal(etag, revalidated.Headers.ETag!.Tag);
+            Assert.True(revalidated.Headers.CacheControl!.NoCache);
+            Assert.Empty(await revalidated.Content.ReadAsByteArrayAsync());
+            Assert.Equal("0", Header(revalidated));
+        }
+        Assert.Equal(1, fixture.Queries.Count);
+        Assert.Equal(0, fixture.SecondQueries.Count);
+        fixture.Inventory.Stock[id] = 6;
+        using var changed = await ConditionalAsync(fixture.Client, id, etag);
+        Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+        Assert.NotEqual(etag, changed.Headers.ETag!.Tag);
+        Assert.Equal(6, (await changed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("available").GetInt32());
+        Assert.Equal("0", Header(changed));
+        Assert.Equal(4, fixture.Inventory.Lookups.Count);
+    }
+
+    [Fact]
+    public async Task InvalidatedProductAndCategoryEditsRefreshCachedETagsAndBodies()
+    {
+        var id = CatalogCacheFixture.ProductId(1);
+        using var initial = await fixture.Client.GetAsync($"/api/v1/products/{id}");
+        var initialTag = initial.Headers.ETag!.Tag;
+        await fixture.UpdateAsync(db => db.Products.Where(p => p.Id == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(p => p.Description, "Edited with cached ETag")));
+        await fixture.InvalidateProductAsync(id, fixture.Category, fixture.Category);
+        using var edited = await ConditionalAsync(fixture.Client, id, initialTag);
+        Assert.Equal(HttpStatusCode.OK, edited.StatusCode);
+        Assert.NotEqual(initialTag, edited.Headers.ETag!.Tag);
+        Assert.Equal("Edited with cached ETag", (await edited.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("description").GetString());
+        await fixture.UpdateAsync(db => db.Categories.Where(c => c.Id == fixture.Category)
+            .ExecuteUpdateAsync(s => s.SetProperty(c => c.Name, "Renamed books")));
+        await using var scope = fixture.App.Services.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<CatalogCacheInvalidator>().CategoriesChangedAsync();
+        using var renamed = await ConditionalAsync(fixture.Client, id, edited.Headers.ETag.Tag);
+        Assert.Equal(HttpStatusCode.OK, renamed.StatusCode);
+        Assert.NotEqual(edited.Headers.ETag.Tag, renamed.Headers.ETag!.Tag);
+        Assert.Equal("Renamed books", (await renamed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("categoryName").GetString());
+        using var current = await ConditionalAsync(fixture.Client, id, renamed.Headers.ETag.Tag);
+        Assert.Equal(HttpStatusCode.NotModified, current.StatusCode);
+        Assert.Equal("0", Header(current));
+    }
+
+    [Fact]
+    public async Task OldProductPayloadCannotBeReadAsTheNewVersionedCacheSnapshot()
+    {
+        var id = CatalogCacheFixture.ProductId(1);
+        await fixture.SeedLegacyProductAsync(id);
+        fixture.Queries.Reset();
+        using var response = await fixture.Client.GetAsync($"/api/v1/products/{id}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("Product 1", (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("name").GetString());
+        Assert.Equal("1", Header(response));
+        Assert.Matches("^\"v[1-9][0-9]*-c[1-9][0-9]*-s0\"$", response.Headers.ETag!.Tag);
+        await fixture.WaitForRedisAsync(CatalogCacheKeys.Product(id));
+        Assert.True(await fixture.Redis.KeyExistsAsync("shop:r3:v1:" + CatalogCacheKeys.Product(id)));
+    }
+
+    [Fact]
     public async Task LocalExpiryUsesRedisThenDistributedExpiryRefills()
     {
         await fixture.ResetAsync(new() { ["CatalogCache:ProductTtl"] = "00:00:01", ["CatalogCache:LocalTtl"] = "00:00:00.100" });
@@ -51,13 +122,13 @@ public sealed class CatalogCacheTests(CatalogCacheFixture fixture) : IClassFixtu
         var path = $"/api/v1/products/{id}";
         await AssertQueriesAsync(fixture.Client, path, 1);
         await fixture.WaitForRedisAsync(key);
-        var ttl = await fixture.Redis.KeyTimeToLiveAsync("shop:r3:v1:" + key);
+        var ttl = await fixture.Redis.KeyTimeToLiveAsync(CacheRegistration.RedisPrefix + key);
         Assert.NotNull(ttl);
         Assert.InRange(ttl.Value.TotalSeconds, 0, 1);
         await Task.Delay(150);
         await AssertQueriesAsync(fixture.Client, path, 0);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        while (await fixture.Redis.KeyExistsAsync("shop:r3:v1:" + key)) await Task.Delay(20, timeout.Token);
+        while (await fixture.Redis.KeyExistsAsync(CacheRegistration.RedisPrefix + key)) await Task.Delay(20, timeout.Token);
         await Task.Delay(110);
         await AssertQueriesAsync(fixture.Client, path, 1);
     }
@@ -91,7 +162,7 @@ public sealed class CatalogCacheTests(CatalogCacheFixture fixture) : IClassFixtu
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
         await owner.DisposeAsync();
         gate.Release.TrySetResult();
-        Assert.Equal("Product 1", (await second.WaitAsync(TimeSpan.FromSeconds(5)))!.Name);
+        Assert.Equal("Product 1", (await second.WaitAsync(TimeSpan.FromSeconds(5)))!.Product.Name);
         Assert.Equal(1, fixture.Queries.Count);
     }
 
@@ -263,6 +334,12 @@ public sealed class CatalogCacheTests(CatalogCacheFixture fixture) : IClassFixtu
     }
 
     private async Task<ProductPageResponse> PageAsync(string path) => (await fixture.Client.GetFromJsonAsync<ProductPageResponse>(path))!;
+    private static async Task<HttpResponseMessage> ConditionalAsync(HttpClient client, Guid id, string etag)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/products/{id}");
+        request.Headers.TryAddWithoutValidation("If-None-Match", etag);
+        return await client.SendAsync(request);
+    }
     private async Task<JsonElement> DetailsAsync(Guid id) => await fixture.Client.GetFromJsonAsync<JsonElement>($"/api/v1/products/{id}");
     private static string Header(HttpResponseMessage response) => Assert.Single(response.Headers.GetValues("X-Db-Queries"));
     private static async Task AssertQueriesAsync(HttpClient client, string path, int count)

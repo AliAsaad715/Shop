@@ -17,4 +17,8 @@ internal sealed class Product
     public Guid CategoryId { get; set; }
 
     public Category Category { get; set; } = null!;
+
+    // Postgres's xmin: the transaction that last wrote the row, so every update changes it. Product details build their
+    // ETag from it (task R3-09)
+    public uint Version { get; private set; }
 }

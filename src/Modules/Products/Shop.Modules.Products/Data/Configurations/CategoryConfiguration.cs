@@ -13,6 +13,7 @@ internal sealed class CategoryConfiguration : IEntityTypeConfiguration<Category>
 
         builder.Property(category => category.Id).HasColumnName("id").ValueGeneratedNever();
         builder.Property(category => category.Name).HasColumnName("name").HasMaxLength(100).IsRequired();
+        builder.Property(category => category.Version).HasColumnName("xmin").IsRowVersion();
 
         builder.HasIndex(category => category.Name).IsUnique();
 

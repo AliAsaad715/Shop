@@ -47,6 +47,21 @@ public sealed class DbQueryCountTests(DbQueryCountFixture fixture) : IClassFixtu
         }
     }
 
+    // An ETag saves the transfer, not the database work: the product is read either way (task R3-09)
+    [Fact]
+    public async Task A304StillReadsTheProductOnce()
+    {
+        const string path = "/api/v1/products/019a2180-2000-7000-8000-000000000001";
+        using var first = await fixture.Development.GetAsync(path);
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        request.Headers.IfNoneMatch.Add(first.Headers.ETag!);
+
+        using var revalidated = await fixture.Development.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.NotModified, revalidated.StatusCode);
+        Assert.Equal("1", Header(revalidated));
+    }
+
     [Fact]
     public async Task ProductionSendsNoHeader()
     {

@@ -38,3 +38,9 @@ The schema, upload and catalog test classes all share the `Products database` co
 ## Demo seed
 
 `DemoSeedTests` starts the Products module with `DemoSeed:Enabled=true` against PostgreSQL and checks that the seeder adds the six demo products with a PNG image each, and that running it again adds nothing and keeps an edited price. It also reads `warehouse/db/002_seed.sql` and fails unless the warehouse stocks exactly the app's demo product IDs, with one unit of product X.
+
+## ETags
+
+`ProductETagTests` covers product details' ETag (task R3-09): its form, `"v{product}-c{category}-s{stock}"`, with `Cache-Control: no-cache`; a 304 with no body and the same headers for the current ETag, also weakened (`W/`), in a list or as `*`; a new ETag after the stock changes, the product is edited or its category renamed; an ETag of its own for unknown stock; and none on a 404. `DbQueryCountTests` shows a 304 still reads the product once: an ETag saves the transfer, not the database work.
+
+The row versions are Postgres's `xmin`, and EF treats them as concurrency tokens, so the schema test loads a category before deleting it: a delete names the version it read.

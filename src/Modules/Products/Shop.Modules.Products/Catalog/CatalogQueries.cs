@@ -26,8 +26,13 @@ internal static class CatalogQueries
         return new ProductPageResponse(items, number, request.PageSize, totalCount, nextCursor);
     }
 
-    public static Task<ProductResponse?> GetAsync(Guid id, ProductsDbContext context, CancellationToken ct) =>
-        Responses(context.Products.AsNoTracking().Where(product => product.Id == id)).SingleOrDefaultAsync(ct);
+    public static Task<VersionedProduct?> GetAsync(Guid id, ProductsDbContext context, CancellationToken ct) =>
+        context.Products.AsNoTracking().Where(product => product.Id == id)
+            .Select(product => new VersionedProduct(
+                new ProductResponse(product.Id, product.Name, product.Description, product.Price, ImageUrl(product.ImagePath),
+                    product.CategoryId, product.Category.Name, product.CreatedAt),
+                product.Version, product.Category.Version))
+            .SingleOrDefaultAsync(ct);
 
     public static Task<List<CategoryResponse>> CategoriesAsync(ProductsDbContext context, CancellationToken ct) =>
         context.Categories.AsNoTracking().OrderBy(category => category.Name).ThenBy(category => category.Id)

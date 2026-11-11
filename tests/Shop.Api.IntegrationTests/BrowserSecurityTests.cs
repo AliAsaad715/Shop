@@ -80,6 +80,20 @@ public sealed class BrowserSecurityTests(RoutingApi api) : IClassFixture<Routing
         Assert.True(response.Headers.CacheControl?.NoStore);
     }
 
+    // Authenticated responses default to no-store, but an endpoint that chose its caching keeps it: product details are
+    // the same for everyone and say no-cache, so a signed-in browser can keep them and check with an ETag (task R3-09)
+    [Fact]
+    public async Task BearerResponsesKeepTheCachingTheirEndpointChose()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/test/revalidated");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", api.CustomerToken());
+        using var response = await api.Client.SendAsync(request);
+
+        Assert.Equal("authenticated", await response.Content.ReadAsStringAsync());
+        Assert.True(response.Headers.CacheControl?.NoCache);
+        Assert.False(response.Headers.CacheControl?.NoStore);
+    }
+
     [Fact]
     public async Task RateLimitErrorsKeepCorsSecurityHeadersAndExposeRetryAfter()
     {

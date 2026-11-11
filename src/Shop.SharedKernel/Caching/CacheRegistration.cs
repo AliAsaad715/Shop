@@ -7,7 +7,8 @@ namespace Shop.SharedKernel.Caching;
 
 public static class CacheRegistration
 {
-    public const string RedisPrefix = "shop:r3:v1:";
+    // v2 adds product/category row versions to the cached product payload; v1 entries have a different shape.
+    public const string RedisPrefix = "shop:r3:v2:";
 
     public static IServiceCollection AddShopCaching(this IServiceCollection services)
     {

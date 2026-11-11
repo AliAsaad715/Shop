@@ -11,6 +11,8 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.Extensions.Caching.StackExchangeRedis;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -21,6 +23,7 @@ using Shop.Modules.Products.Data;
 using Shop.Modules.Products.Domain;
 using Shop.Modules.Products.Seeding;
 using Shop.SharedKernel.Diagnostics;
+using Shop.SharedKernel.Caching;
 using Shop.SharedKernel.Errors;
 using Shop.SharedKernel.Validation;
 using StackExchange.Redis;
@@ -151,7 +154,26 @@ public sealed class CatalogCacheFixture : IAsyncLifetime
     public async Task WaitForRedisAsync(string key)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        while (!await Redis.KeyExistsAsync("shop:r3:v1:" + key)) await Task.Delay(20, timeout.Token);
+        while (!await Redis.KeyExistsAsync(CacheRegistration.RedisPrefix + key)) await Task.Delay(20, timeout.Token);
+    }
+
+    internal async Task SeedLegacyProductAsync(Guid id)
+    {
+        await using var scope = App.Services.CreateAsyncScope();
+        var found = await CatalogQueries.GetAsync(id, scope.ServiceProvider.GetRequiredService<ProductsDbContext>(), CancellationToken.None);
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:Redis"] = $"{_redis.Hostname}:{_redis.GetMappedPublicPort(6379)}",
+        }).Build();
+        // Write a real pre-ETag HybridCache payload into the old deployment's namespace.
+        var services = new ServiceCollection().AddSingleton<IConfiguration>(configuration).AddLogging().AddShopCaching();
+        services.PostConfigure<RedisCacheOptions>(options => options.InstanceName = "shop:r3:v1:");
+        await using var legacy = services.BuildServiceProvider();
+        await legacy.GetRequiredService<HybridCache>().SetAsync(CatalogCacheKeys.Product(id),
+            found!.Product with { Name = "Legacy payload", Price = 777m },
+            new HybridCacheEntryOptions { Expiration = TimeSpan.FromMinutes(1), LocalCacheExpiration = TimeSpan.FromSeconds(1) });
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!await Redis.KeyExistsAsync("shop:r3:v1:" + CatalogCacheKeys.Product(id))) await Task.Delay(20, timeout.Token);
     }
 
     public Task SeedDemoAsync()

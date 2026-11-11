@@ -1,5 +1,9 @@
 # Redis and HybridCache (R3-07)
 
+These measurements belong to the preserved `r3-before-redis` and `r3-after-redis` tags, before the later merge
+with R3-09. The merge keeps the measured data and adds functional Redis/ETag integration tests; it does not
+claim a new load-test measurement of the combined implementation.
+
 ## Prediction, written before measurement
 
 At the initially planned 1,000 requests/s mix, PostgreSQL should execute fewer catalog queries and use less CPU. Warm product

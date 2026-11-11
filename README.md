@@ -340,6 +340,10 @@ one hour, and numbered product pages 1-3 last 60 seconds. The key includes the c
 omitted defaults share a key with explicit defaults. Cursor pages and deeper numbered pages bypass the cache.
 The current load test follows cursors after page 1, so about 60% of its list traffic is eligible.
 
+Product metadata and the product/category row versions share one cache entry. Conditional requests reuse that
+snapshot and still fetch live stock before checking the ETag. Redis keys use the `shop:r3:v2:` namespace so the
+versioned payload cannot be confused with the older `shop:r3:v1:` product-only entries; old entries expire normally.
+
 Stock is fetched from the warehouse on every detail request, including warm reads. Order creation's batched
 `IProductCatalog` continues to read current prices directly from PostgreSQL. Orders, authentication state,
 permissions, errors and HTTP headers are never stored in the catalog cache.
@@ -373,6 +377,40 @@ The measured Redis comparison uses **400 req/s on both versions**, three valid r
 was 73.7%. [`perf/results/after-redis/README.md`](perf/results/after-redis/README.md) records all attempts, the
 environment and the interpretation; [`comparison.redis.md`](perf/results/comparison.redis.md) isolates the Redis
 change. The historical baseline is at 1,000 req/s with a different CPU allocation, so its deltas don't compare.
+
+## Product ETags (task R3-09)
+
+`GET /api/v1/products/{id}` labels its answer with an ETag and `Cache-Control: no-cache`: a client may keep the
+product, but checks with the API each time it shows it. It sends the ETag back in `If-None-Match`, and while nothing in
+the product has changed, the answer is `304 Not Modified` with no body, carrying the same ETag and `Cache-Control`.
+
+```sh
+curl -i "$API/api/v1/products/$ID"                                            # 200 OK, ETag: "v882-c882-s1000000"
+curl -i -H 'If-None-Match: "v882-c882-s1000000"' "$API/api/v1/products/$ID"   # 304 Not Modified, no body
+```
+
+The ETag changes whenever anything in the body can:
+
+- `v` is the product row's version, and `c` its category's, since the body shows the category's name. Both are
+  Postgres's `xmin`, the system column holding the transaction that last wrote the row, so every update changes it.
+  The migration only maps it; every row always had one. EF now also uses it as a concurrency token: an update or
+  delete names the version it read, which is what R3-08's `If-Match` can turn into a 412.
+- `s` is the stock the warehouse reported, which every order changes, or `s?` when the warehouse couldn't answer.
+
+`If-None-Match` compares weakly, so the `W/"…"` a compressing proxy sends back matches too, as do lists and `*`.
+
+A 304 reads product metadata and its row versions through HybridCache, then asks the warehouse for live stock.
+Warm metadata avoids PostgreSQL; the ETag independently saves transfer and serialization. With caching disabled,
+revalidation still reads the product once. The original R3-09 measurement reduced a response from 796 bytes to 338.
+
+The security headers make every authenticated response `no-store`, unless its endpoint chose its own caching. Product
+details are the same for everyone, so they choose `no-cache`, and a signed-in browser keeps and revalidates them
+too. Every other endpoint still gets `no-store`.
+
+In `perf/load.js`, product details send their ETags back as a browser would (`ETAGS=off` stops it). Run alone, with
+nothing changing, 45% of the views came back as 304s, and the data received fell by 28.5%. In the full mix, only
+1.5% did: an order changes the stock in the body, and the products viewed most are the ones ordered most.
+[`perf/results/etag`](perf/results/etag/README.md) has the runs and the reasoning.
 
 ## Verify
 

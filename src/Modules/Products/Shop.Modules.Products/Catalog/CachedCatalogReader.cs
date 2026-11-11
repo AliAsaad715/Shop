@@ -22,7 +22,7 @@ internal sealed class CachedCatalogReader(
         ReadAsync(CatalogCacheKeys.Categories, options.Value.CategoriesTtl, [CatalogCacheKeys.CatalogTag],
             CatalogQueries.CategoriesAsync, ct);
 
-    public async Task<ProductResponse?> GetAsync(Guid id, CancellationToken ct)
+    public async Task<VersionedProduct?> GetAsync(Guid id, CancellationToken ct)
     {
         try
         {
