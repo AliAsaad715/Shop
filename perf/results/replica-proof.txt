@@ -1,0 +1,8 @@
+The replica replays every change 5 s late, and the api sends a customer's reads to the primary for a while after they write
+replica apply delay: 5s
+
+customer100@shop.test places order 01a1ce26-0fa9-759b-84b3-b05f009a4383
+after 0.64 s: in "my orders": true; rows on the replica itself: 0
+after 5.45 s: the replica has it too
+
+Putting back: no apply delay, routing as .env says

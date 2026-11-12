@@ -6,7 +6,8 @@
 #
 #   perf/compare.sh [baseline label]      "baseline" unless given
 #
-# RUNS sets how many of each label's latest valid runs count (3). Needs jq.
+# RUNS sets how many of each label's latest valid runs count (3); LABELS, comma-separated, keeps only those steps, as
+# perf/final.sh does for the plan's five (task R3-12). Needs jq.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -26,6 +27,10 @@ runs=$(find perf/results -name '*.json' ! -name '*.system.json' | sort | while r
   jq -c --arg file "$file" --slurpfile system "$system" \
     'select(type == "object" and has("endpoints") and has("overall")) | {file: $file, result: ., system: $system[0]}' "$file"
 done | jq -s .)
+
+if [[ -n ${LABELS:-} ]]; then
+  runs=$(jq --arg labels "$LABELS" '($labels | split(",")) as $keep | map(select(.result.label | IN($keep[])))' <<<"$runs")
+fi
 
 if [[ $(jq 'map(select(.result.valid)) | length' <<<"$runs") -eq 0 ]]; then
   echo "No valid k6 results in perf/results yet; perf/run.sh <label> <rate> makes them" >&2

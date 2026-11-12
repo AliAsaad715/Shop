@@ -12,6 +12,9 @@ These tools measure each step of Requirement 3 the same way, on the same data, s
 | [`top-queries.sh`](top-queries.sh) | R3-04 | Lists the queries with the most database time, from `pg_stat_statements` |
 | [`explain.sh`](explain.sh), [`plans/`](plans) | R3-05 | Shows a query's real plan, `EXPLAIN (ANALYZE, BUFFERS)`; the top queries' plans before and after keyset paging |
 | [`replica-lag.sh`](replica-lag.sh) | R3-10 | Shows how far the read replica is behind the primary: the WAL it hasn't replayed, and its write, flush and replay lag; `watch` prints a line a second |
+| [`final.sh`](final.sh) | R3-12 | The final runs: builds every step's app from its tagged commit, then measures all five steps at one rate on one machine and writes the report |
+| [`proof-edit.sh`](proof-edit.sh) | R3-12 | The live-edit exhibit: an admin's edit shows at once with a new ETag, and the next request is a 304 |
+| [`proof-replica.sh`](proof-replica.sh) | R3-12 | The live-replica exhibit: with the replica 5 s late, a new order still shows at once in "my orders" |
 
 They need Docker, bash and jq (`sudo apt install jq`, or `brew install jq`); `run.sh` runs k6 from its Docker image.
 
@@ -165,6 +168,40 @@ answered 304 Not Modified (`304s`, task R3-09; `–` for runs from before it cou
 The report also says what the system did in each step: CPU per container, database connections and waits, and the
 Redis hit ratio. Its notes flag what makes numbers not compare: a different rate, duration or dataset than the
 baseline, invalid runs left out, or customers registered for the run instead of seeded ones.
+
+## The final runs: final.sh
+
+The steps were first measured as pairs, on two machines and at three rates (1,000, 400 and 200 req/s), so their
+numbers don't compare with each other. `perf/final.sh` measures all five again on one machine at one rate, with
+today's load test, snapshot and services; only the app changes, built from each step's tagged commit:
+
+```sh
+perf/final.sh build      # the five API images, shop-api:<step>; the machine may be busy meanwhile
+perf/final.sh run 800    # on mains power with nothing else running: about 15 minutes a step
+```
+
+| Step | Commit | What it adds |
+| --- | --- | --- |
+| `baseline` | `r3-rebaseline` | Nothing yet; R3-04's query counter runs only in Development |
+| `after-db` | `r3-before-redis` | Keyset pagination and fewer round trips (R3-05, R3-06) |
+| `after-redis` | `r3-after-redis` | Redis and HybridCache (R3-07) |
+| `after-etag` | `r3-after-etag` | ETags and 304s on product details (R3-09), on top of Redis |
+| `after-replica` | `r3-after-replica` | The read replica, with read routing on (R3-10, R3-11) |
+
+- A `.gitignore` rule kept five Orders files out of the commits before `r3-before-redis`, so those builds take them
+  from `3f36a42`, which restored them: every step runs the same pending-release code.
+- The script swaps the app by pointing compose's `shop-api` image at the step's image. Postgres, Redis and the
+  warehouse stay the same throughout; the replica runs only for `after-replica`.
+- Each step keeps trying until it has three valid runs at the rate, five runs at most. `run.sh` records the step's
+  own commit (`COMMIT`), not the checkout's.
+- It stops on battery power, and before starting if an image compose needs isn't on the machine, rather than pulling
+  it in the middle of the runs.
+- At the end it puts today's app back and writes `comparison.md` for the five steps only (`LABELS`); earlier runs of
+  the same steps at other rates stay in their folders and are left out. Then it records the plan's two live exhibits
+  on today's app: `proof-edit.sh` into `results/edit-proof.txt` and `proof-replica.sh` into `results/replica-proof.txt`.
+- `FROM=<step>` resumes a batch that stopped partway at that step; the steps before it keep their runs.
+- The builds publish each app in the SDK image the Dockerfile uses, from this machine's NuGet cache, so they need no
+  network; the image is the Dockerfile's runtime stage ([`final.Dockerfile`](final.Dockerfile)).
 
 ## The load test: load.js
 
