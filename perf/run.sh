@@ -47,9 +47,14 @@ fi
 command -v jq >/dev/null || { echo "perf/run.sh needs jq: sudo apt install jq, or brew install jq" >&2; exit 1; }
 
 # The results name the commit; the plan runs every step on a tagged one
-commit=$(git describe --tags --always --dirty)
-git describe --tags --exact-match >/dev/null 2>&1 || echo "Note: HEAD has no tag; tag each step's commit (git tag r3-$label)"
-[[ $commit != *-dirty ]] || echo "Note: there are uncommitted changes, so the results name $commit"
+# COMMIT names it instead when the app under test was built from another commit, as perf/final.sh does (task R3-12)
+if [[ -n ${COMMIT:-} ]]; then
+  commit=$COMMIT
+else
+  commit=$(git describe --tags --always --dirty)
+  git describe --tags --exact-match >/dev/null 2>&1 || echo "Note: HEAD has no tag; tag each step's commit (git tag r3-$label)"
+  [[ $commit != *-dirty ]] || echo "Note: there are uncommitted changes, so the results name $commit"
+fi
 
 dir=perf/results/$label
 mkdir -p "$dir"

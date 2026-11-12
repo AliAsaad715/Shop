@@ -543,6 +543,17 @@ of one core, while overall p95 increased from 9.9 to 10.3 ms. The
 [results and five-second lag proof](perf/results/after-replica/README.md) explain that tradeoff;
 [comparison.replica.md](perf/results/comparison.replica.md) isolates these two tagged versions.
 
+## Final results (task R3-12)
+
+[`perf/results/README.md`](perf/results/README.md) has the plan's four exhibits: the results table, what the system
+did in each run, a live edit and a live replica. In short: Redis took Postgres from 34% to 15% of a core and cut p95
+by 9% (catalog p95 by a third or more); keyset paging made the deepest catalog page 40 times cheaper in the database;
+ETags save 28.5% of the data when products don't change, but few revalidations match while orders keep changing
+stock; the replica took about 6,850 catalog reads a run off the primary at a 4% p95 cost on one laptop.
+
+The steps were measured as pairs on two machines and at three rates, so each row compares only with its own
+reference. [`perf/final.sh`](perf/final.sh) remeasures all five on one machine at one rate (about 75 minutes).
+
 ## Verify
 
 ```sh

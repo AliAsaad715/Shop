@@ -1,0 +1,31 @@
+ID=0003196c-e7e8-9010-de95-295d55ee2387
+
+1. Read twice: the second request sends the ETag back
+$ curl -i "$API/api/v1/products/$ID"
+HTTP/1.1 200 OK
+Cache-Control: no-cache
+ETag: "v882-c882-s1000000"
+body: Classic Watch 3190, price 146.56, 1000000 in stock
+$ curl -i -H 'If-None-Match: "v882-c882-s1000000"' "$API/api/v1/products/$ID"
+HTTP/1.1 304 Not Modified
+Cache-Control: no-cache
+ETag: "v882-c882-s1000000"
+body: none
+
+2. An admin raises the price by 1: PUT $API/api/v1/products/$ID -> 204
+
+3. The same request as before, with the old ETag: the new price and a new ETag, at once
+$ curl -i -H 'If-None-Match: "v882-c882-s1000000"' "$API/api/v1/products/$ID"
+HTTP/1.1 200 OK
+Cache-Control: no-cache
+ETag: "v183484-c882-s1000000"
+body: Classic Watch 3190, price 147.56, 1000000 in stock
+
+4. Once more, with the new ETag
+$ curl -i -H 'If-None-Match: "v183484-c882-s1000000"' "$API/api/v1/products/$ID"
+HTTP/1.1 304 Not Modified
+Cache-Control: no-cache
+ETag: "v183484-c882-s1000000"
+body: none
+
+Put the product back: PUT -> 204
