@@ -1,6 +1,7 @@
 using Shop.Api.Docs;
 using Shop.Api.Routing;
 using Shop.Api.Security;
+using Shop.Messaging;
 using Shop.Modules.Notifications;
 using Shop.Modules.Orders;
 using Shop.Modules.Products;
@@ -17,6 +18,9 @@ builder.Services
     .AddProductsModule()
     .AddOrdersModule()
     .AddNotificationsModule();
+
+// RabbitMQ (task R4-01): connects in the background and declares the topology; Degraded while it's down
+builder.Services.AddShopMessaging("shop-api");
 
 builder.Services.AddErrorContract();
 builder.Services.AddVersionedApiDocs();
