@@ -7,13 +7,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Shop.Messaging.Publishing;
 using Shop.Modules.Orders.Domain;
 using Shop.Modules.Products.Contracts;
 using Shop.SharedKernel.Auth;
 
 namespace Shop.Modules.Orders.IntegrationTests;
 
-// Stands in for the Users module's JWT validation: X-Test-User is the sub claim, X-Test-Role the role
+// Stands in for the Users module's JWT validation: X-Test-User is the sub claim, X-Test-Role the role, X-Test-Email the email
 internal sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
@@ -28,7 +29,8 @@ internal sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOption
 
         var claims = new List<Claim> { new("sub", user.ToString()) };
         claims.AddRange(Request.Headers["X-Test-Role"].Select(role => new Claim("role", role!)));
-        var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, SchemeName, "sub", "role"));
+        claims.AddRange(Request.Headers["X-Test-Email"].Select(email => new Claim("email", email!)));
+        var principal =new ClaimsPrincipal(new ClaimsIdentity(claims, SchemeName, "sub", "role"));
 
         return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(principal, SchemeName)));
     }
@@ -42,7 +44,7 @@ internal sealed class TestCurrentUser(IHttpContextAccessor accessor) : ICurrentU
 
     public Guid? UserId => Guid.TryParse(Principal?.FindFirstValue("sub"), out var id) ? id : null;
 
-    public string? Email => null;
+    public string? Email => Principal?.FindFirstValue("email");
 
     public IReadOnlyCollection<string> Roles => Principal?.FindAll("role").Select(claim => claim.Value).ToArray() ?? [];
 
@@ -136,5 +138,53 @@ public sealed class OrderSaveFailure : SaveChangesInterceptor
         }
 
         return base.SavingChangesAsync(eventData, result, cancellationToken);
+    }
+}
+
+// Stands in for RabbitMQ behind IEventPublisher: records every message, confirms it unless Failure names a reason, and
+// can hold one batch inside PublishAsync, as a slow broker would, while the relay's transaction keeps its rows locked
+public sealed class RecordingPublisher : IEventPublisher
+{
+    private BatchHold? _hold;
+
+    public ConcurrentQueue<OutgoingMessage> Received { get; } = new();
+
+    // Returns why a message fails, or null to confirm it
+    public Func<OutgoingMessage, string?>? Failure { get; set; }
+
+    public void Reset()
+    {
+        Received.Clear();
+        Failure = null;
+        _hold = null;
+    }
+
+    public BatchHold HoldNextBatch() => _hold = new BatchHold();
+
+    public async Task<IReadOnlyList<PublishResult>> PublishAsync(IReadOnlyList<OutgoingMessage> messages, CancellationToken cancellationToken)
+    {
+        if (Interlocked.Exchange(ref _hold, null) is { } hold)
+        {
+            hold.Reached.TrySetResult();
+            await hold.Release.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+        }
+
+        var results = new List<PublishResult>(messages.Count);
+        foreach (var message in messages)
+        {
+            Received.Enqueue(message);
+            results.Add(Failure?.Invoke(message) is { } failure
+                ? PublishResult.Failed(message.MessageId, failure)
+                : PublishResult.Success(message.MessageId));
+        }
+
+        return results;
+    }
+
+    public sealed class BatchHold
+    {
+        public TaskCompletionSource Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 }

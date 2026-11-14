@@ -7,8 +7,9 @@ namespace Shop.Messaging.Publishing;
 
 /// <summary>
 /// Publishes on one channel with publisher confirms: RabbitMQ answers every message with an ack once it has stored it
-/// in all the queues it routes to, or a nack when it can't. Messages are mandatory, so a message no queue is bound for
-/// comes back as a return instead of vanishing.
+/// in all the queues it routes to, or a nack when it can't. Event types that must reach a queue
+/// (<see cref="ShopTopology.RequiresQueue"/>) are mandatory, so one that no queue takes comes back as a return
+/// instead of vanishing.
 /// </summary>
 internal sealed class RabbitMqEventPublisher(
     RabbitMqConnection connection, IOptions<RabbitMqOptions> options, ILogger<RabbitMqEventPublisher> logger)
@@ -105,7 +106,8 @@ internal sealed class RabbitMqEventPublisher(
         {
             // With confirm tracking on, this completes only when RabbitMQ acks the message
             await channel.BasicPublishAsync(
-                ShopTopology.EventsExchange, message.RoutingKey, mandatory: true, properties, message.Body, cancellationToken);
+                ShopTopology.EventsExchange, message.RoutingKey, mandatory: ShopTopology.RequiresQueue(message.RoutingKey),
+                properties, message.Body, cancellationToken);
             return PublishResult.Success(message.MessageId);
         }
         catch (PublishException error) when (error.IsReturn)

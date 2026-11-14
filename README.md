@@ -568,10 +568,13 @@ container, so the app signs in with its own user, created when the `rabbitmq-dat
   client reconnects by itself (every 5 seconds) and declares it again.
 - `RabbitMqConnector` connects in the background at startup with backoff (1 s doubling to 30 s), so a missing
   broker never blocks startup. `/health` reports Degraded until it connects, as it does for the warehouse.
-- `IEventPublisher` publishes persistent, mandatory messages with publisher confirms, and returns one result per
-  message. Only a confirmed message is stored; a nack, a message no queue is bound for, a timeout
-  (`RabbitMq:ConfirmTimeout`, 5 s) or a broker that can't be reached fails that message, and nothing throws, so the
-  outbox relay (R4-02) can retry exactly the failed rows. A batch is sent in list order and confirmed together.
+- `IEventPublisher` publishes persistent messages with publisher confirms, and returns one result per message. Only a
+  confirmed message is stored; a nack, a timeout (`RabbitMq:ConfirmTimeout`, 5 s) or a broker that can't be reached
+  fails that message, and nothing throws, so the outbox relay (R4-02) can retry exactly the failed rows. A batch is
+  sent in list order and confirmed together.
+- `order.placed` is mandatory: it must reach the email queue, so one that no queue takes fails too. A status change
+  that no queue takes is confirmed and dropped, since only live pages (R4-07) want it and they reload an order when
+  they connect; retrying it would only hold up the relay.
 
 | Name | Kind | Arguments and binding |
 | --- | --- | --- |
@@ -601,9 +604,54 @@ docker compose start rabbitmq             # the API reconnects on its own within
 `tests/Shop.Messaging.IntegrationTests` start the same image with Testcontainers and check, through the management
 API, the topology's types and arguments; that a second host declaring it changes nothing; that the client reconnects
 and declares it again after the broker drops the connection; that confirmed messages are persistent and keep their
-order; that an unroutable message fails while the rest of its batch is confirmed; that rejected and over-limit
-messages reach the DLQ, and nacked ones never do; that a host without a broker starts at once and reports Degraded;
-and that invalid settings stop it.
+order; that an `order.placed` no queue takes fails while the rest of its batch is confirmed, and a status change no
+queue takes is confirmed; that rejected and over-limit messages reach the DLQ, and nacked ones never do; that a host
+without a broker starts at once and reports Degraded; and that invalid settings stop it.
+
+## Transactional outbox (task R4-02)
+
+Placing an order never waits for RabbitMQ. The order and its event are saved in one transaction, and a background
+relay publishes the event afterwards:
+
+1. `Order.Place` and `Order.MoveTo` record an event inside the order (`OrderPlaced`, `OrderStatusChanged`), so no
+   code path can place an order or change its status without one.
+2. When the order is saved, `OrdersDbContext` turns those events into rows of `orders.outbox_messages` in the same
+   `SaveChanges`. One transaction commits both or neither: a saved order always has its event, and a failed save (an
+   error, or a status change that loses the version race with 409) leaves none. The row goes in the same batch, so
+   placing an order is still one round trip and a status change two.
+3. The save wakes this instance's relay at once; a poll every second covers rows another instance wrote and restarts.
+4. One relay pass, in one transaction, locks up to 50 unpublished rows oldest first with `FOR UPDATE SKIP LOCKED`,
+   publishes them, and sets `published_at` on the rows RabbitMQ confirmed. A row it didn't confirm stays unpublished
+   with `attempts` and `last_error` updated, and a later pass retries it. Another instance's relay skips locked rows
+   instead of waiting, so two relays never publish the same row at once.
+5. While RabbitMQ or the database is down, the relay waits 1 s after a failed pass, doubling up to 30 s. Published
+   rows are deleted after 7 days.
+
+| Column | Meaning |
+| --- | --- |
+| `id` | Also the RabbitMQ message ID, so a consumer can drop a message it receives twice |
+| `type` | The event type and routing key: `order.placed` or `order.status-changed` |
+| `payload` | The public event from `Shop.Modules.Orders.Contracts` as camelCase JSON (jsonb), the exact message body |
+| `occurred_at`, `published_at` | When it happened, and when RabbitMQ confirmed it (null while waiting) |
+| `attempts`, `last_error` | Publish tries so far, and why the last one failed |
+
+`order.placed` carries what the confirmation email needs: customer ID and email (from the token), status, total,
+lines and version, so the email worker never reads the Orders or Users tables. `order.status-changed` carries the old
+and new status, the new version and who changed it; live pages ignore a version older than the one they show.
+
+Delivery is at least once. If the app stops after RabbitMQ confirmed a batch but before the commit, those rows go out
+again after the restart; consumers drop repeats by message ID (R4-03). `Orders:Outbox` sets `PollInterval` (1 s),
+`BatchSize` (50) and `Retention` (7 days).
+
+```sql
+-- What is waiting, and why
+SELECT type, attempts, last_error, occurred_at FROM orders.outbox_messages WHERE published_at IS NULL ORDER BY occurred_at;
+```
+
+`OutboxTests` cover the order and its event saved together, a failed save and a lost version race leaving no event,
+a pass publishing the oldest rows with the row ID as message ID, an unconfirmed row keeping its error until a retry
+succeeds, a second relay skipping locked rows without waiting, and cleanup keeping unpublished rows.
+`OutboxWakeUpTests` show the relay publishing a new order at once, with the poll set to an hour.
 
 ## Verify
 

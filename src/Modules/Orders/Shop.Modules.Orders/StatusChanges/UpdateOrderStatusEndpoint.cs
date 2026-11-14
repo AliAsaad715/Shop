@@ -27,9 +27,9 @@ internal static class UpdateOrderStatusEndpoint
             .ProducesProblem(StatusCodes.Status409Conflict);
 
     /// <summary>
-    /// Every status change goes through here, which makes it the place Requirement 4 raises its
-    /// event. Two admins changing the same order at once: the second save fails on the row version
-    /// and the error contract answers 409.
+    /// <see cref="Order.MoveTo"/> records an <c>order.status-changed</c> event, and the save writes it to the outbox
+    /// with the change. Two admins changing the same order at once: the second save fails on the row version, the
+    /// error contract answers 409, and its event is never written.
     /// </summary>
     public static async Task<Results<Ok<OrderResponse>, ProblemHttpResult>> HandleAsync(
         Guid id, UpdateOrderStatusRequest request, OrdersDbContext context, ICurrentUser currentUser,
