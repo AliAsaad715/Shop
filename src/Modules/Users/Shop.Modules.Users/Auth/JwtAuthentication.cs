@@ -65,6 +65,18 @@ internal static class JwtAuthentication
                 };
                 bearer.Events = new JwtBearerEvents
                 {
+                    OnMessageReceived = context =>
+                    {
+                        // Browser WebSockets and SSE cannot set an Authorization header. Accept their token
+                        // only under /hubs; REST endpoints still require the usual bearer header.
+                        var accessToken = context.Request.Query["access_token"];
+                        if (context.Request.Path.StartsWithSegments("/hubs") && !string.IsNullOrEmpty(accessToken))
+                        {
+                            context.Token = accessToken;
+                        }
+
+                        return Task.CompletedTask;
+                    },
                     OnTokenValidated = context =>
                     {
                         var principal = context.Principal!;

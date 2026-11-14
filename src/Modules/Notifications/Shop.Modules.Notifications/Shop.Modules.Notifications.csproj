@@ -10,4 +10,8 @@
     <ProjectReference Include="..\Shop.Modules.Notifications.Contracts\Shop.Modules.Notifications.Contracts.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Shop.Api.IntegrationTests" />
+  </ItemGroup>
+
 </Project>
