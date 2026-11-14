@@ -75,6 +75,11 @@ internal sealed class ConformanceApiFactory(string connectionString) : WebApplic
             ["Jwt:SigningKey"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)),
             // Required at startup; no conformance test reaches the warehouse
             ["Inventory:Address"] = "http://localhost:50051",
+            // Required at startup too; nothing listens on port 1, so the app runs Degraded without RabbitMQ
+            ["RabbitMq:Host"] = "127.0.0.1",
+            ["RabbitMq:Port"] = "1",
+            ["RabbitMq:UserName"] = "shop",
+            ["RabbitMq:Password"] = "shop",
         }));
         builder.ConfigureTestServices(services =>
         {

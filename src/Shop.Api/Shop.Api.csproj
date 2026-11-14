@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Shop.SharedKernel\Shop.SharedKernel.csproj" />
+    <ProjectReference Include="..\Shop.Messaging\Shop.Messaging.csproj" />
     <ProjectReference Include="..\Modules\Users\Shop.Modules.Users\Shop.Modules.Users.csproj" />
     <ProjectReference Include="..\Modules\Products\Shop.Modules.Products\Shop.Modules.Products.csproj" />
     <ProjectReference Include="..\Modules\Orders\Shop.Modules.Orders\Shop.Modules.Orders.csproj" />

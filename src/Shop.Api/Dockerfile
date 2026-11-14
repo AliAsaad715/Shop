@@ -6,6 +6,7 @@ WORKDIR /src
 COPY global.json Directory.Build.props Directory.Packages.props ./
 COPY src/Shop.Api/Shop.Api.csproj src/Shop.Api/
 COPY src/Shop.SharedKernel/Shop.SharedKernel.csproj src/Shop.SharedKernel/
+COPY src/Shop.Messaging/Shop.Messaging.csproj src/Shop.Messaging/
 COPY src/Modules/Users/Shop.Modules.Users/Shop.Modules.Users.csproj src/Modules/Users/Shop.Modules.Users/
 COPY src/Modules/Users/Shop.Modules.Users.Contracts/Shop.Modules.Users.Contracts.csproj src/Modules/Users/Shop.Modules.Users.Contracts/
 COPY src/Modules/Products/Shop.Modules.Products/Shop.Modules.Products.csproj src/Modules/Products/Shop.Modules.Products/

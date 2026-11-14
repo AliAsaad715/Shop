@@ -132,6 +132,8 @@ public sealed class ReadRoutingFixture : IAsyncLifetime
             ["Jwt:Issuer"] = "shop", ["Jwt:Audience"] = "shop-api",
             ["LoginRateLimit:PermitLimit"] = "1000", ["LoginRateLimit:WindowSeconds"] = "60",
             ["Inventory:Address"] = "http://localhost:50051", ["Orders:PendingReleases:PollInterval"] = "01:00:00",
+            // Nothing listens on port 1: no read-routing test publishes, so the app runs Degraded without RabbitMQ
+            ["RabbitMq:Host"] = "127.0.0.1", ["RabbitMq:Port"] = "1", ["RabbitMq:UserName"] = "shop", ["RabbitMq:Password"] = "shop",
         };
         if (overrides is not null) foreach (var setting in overrides) settings[setting.Key] = setting.Value;
         return new ReadRoutingApi(settings);

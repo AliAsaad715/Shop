@@ -28,6 +28,10 @@ services:
       Inventory__Address: http://inventory:50051
       ConnectionStrings__Redis: redis:6379
       CatalogCache__Enabled: ${CATALOG_CACHE_ENABLED:-true}
+      # Order events (task R4-01); the API connects in the background and is Degraded while RabbitMQ is down
+      RabbitMq__Host: rabbitmq
+      RabbitMq__UserName: ${RABBITMQ_USER:-shop}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-shop}
     ports:
       - "${API_PORT:-8080}:8080"
     volumes:
@@ -41,6 +45,38 @@ services:
         condition: service_started
       redis:
         condition: service_started
+      # Not awaited either: orders still save while RabbitMQ is down, and their events wait in the outbox (R4-02)
+      rabbitmq:
+        condition: service_started
+
+  # The message broker (task R4-01). The management UI is at http://localhost:15672, signed in with
+  # RABBITMQ_USER and RABBITMQ_PASSWORD. The app declares the exchanges and queues itself when it connects.
+  rabbitmq:
+    image: rabbitmq:4.3.7-management-alpine
+    # RabbitMQ keeps its data under its node name, rabbit@<hostname>. A fixed hostname keeps that name when the
+    # container is re-created, so the volume's queues and messages are found again
+    hostname: rabbitmq
+    restart: unless-stopped
+    environment:
+      # Only read when the volume is empty, like Postgres's. After changing them, remove just this volume:
+      #   docker compose rm -sf rabbitmq && docker volume rm shop_rabbitmq-data
+      # The built-in guest user can't log in from another container, so the app needs its own user
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-shop}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-shop}
+    ports:
+      # Localhost only: AMQP for a local `dotnet run`, and the management UI
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_UI_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      # Healthy once the AMQP listener accepts connections, not merely once the node is up
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+      start_interval: 2s
 
   redis:
     image: redis:8.10.3-alpine
@@ -196,3 +232,4 @@ volumes:
   postgres-replica-data:
   images:
   inventory-db-data:
+  rabbitmq-data:

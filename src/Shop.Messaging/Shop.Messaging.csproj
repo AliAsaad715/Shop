@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- RabbitMQ for every host: the API publishes through it, and the email worker (R4-03) consumes through it.
+       Plain Microsoft.Extensions packages rather than the ASP.NET Core framework, so a worker needs no web stack -->
+  <ItemGroup>
+    <PackageReference Include="RabbitMQ.Client" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Shop.Messaging.IntegrationTests" />
+  </ItemGroup>
+
+</Project>

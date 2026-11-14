@@ -554,6 +554,57 @@ stock; the replica took about 6,850 catalog reads a run off the primary at a 4% 
 The steps were measured as pairs on two machines and at three rates, so each row compares only with its own
 reference. [`perf/final.sh`](perf/final.sh) remeasures all five on one machine at one rate (about 75 minutes).
 
+## RabbitMQ and the messaging library (task R4-01)
+
+Compose runs RabbitMQ 4.3 with its management UI at `http://localhost:15672` (user `RABBITMQ_USER`, password
+`RABBITMQ_PASSWORD`, both `shop` by default). AMQP is published on `127.0.0.1:5672` for a local `dotnet run`. The
+container has a fixed hostname: RabbitMQ stores its data under its node name, `rabbit@<hostname>`, so a re-created
+container finds the volume's queues and messages again. The `guest` user only works from inside the broker's own
+container, so the app signs in with its own user, created when the `rabbitmq-data` volume is first used.
+
+[`src/Shop.Messaging`](src/Shop.Messaging) is shared by the API and, from R4-03, the email worker:
+
+- `RabbitMqConnection` is the host's one connection. The first connect declares the topology below; after that the
+  client reconnects by itself (every 5 seconds) and declares it again.
+- `RabbitMqConnector` connects in the background at startup with backoff (1 s doubling to 30 s), so a missing
+  broker never blocks startup. `/health` reports Degraded until it connects, as it does for the warehouse.
+- `IEventPublisher` publishes persistent, mandatory messages with publisher confirms, and returns one result per
+  message. Only a confirmed message is stored; a nack, a message no queue is bound for, a timeout
+  (`RabbitMq:ConfirmTimeout`, 5 s) or a broker that can't be reached fails that message, and nothing throws, so the
+  outbox relay (R4-02) can retry exactly the failed rows. A batch is sent in list order and confirmed together.
+
+| Name | Kind | Arguments and binding |
+| --- | --- | --- |
+| `shop.events` | Topic exchange, durable | Every domain event, routed by its type |
+| `email.order-confirmation` | Quorum queue | Bound to `order.placed`; `x-delivery-limit` 5, dead-letters to `shop.dlx` with at-least-once delivery and `x-overflow: reject-publish` |
+| `shop.dlx` | Direct exchange, durable | Receives messages a queue gave up on |
+| `email.order-confirmation.dlq` | Quorum queue | Bound to `shop.dlx` with key `email.order-confirmation` |
+
+A message is dead-lettered on its sixth failed delivery: a limit of 5 allows the first try plus five retries. Since
+RabbitMQ 4.3 only two things count as a failed delivery: `basic.reject` with requeue, and a consumer losing its
+connection with the message unacknowledged. `basic.nack` with requeue doesn't count, so a consumer that nacks a broken
+email retries it forever; the email worker must reject (R4-05). The per-instance live-update queues arrive with their
+consumer in R4-07.
+
+Queue arguments can't change once a queue exists. After changing one in `ShopTopology`, delete that queue in the
+management UI (its messages go with it) and restart the app; otherwise RabbitMQ refuses the declaration with
+PRECONDITION_FAILED and the app stays Degraded.
+
+```sh
+docker compose up -d --wait rabbitmq
+docker compose up -d --build api          # then open http://localhost:15672 > Queues and Streams
+curl -s localhost:8080/health             # Healthy, or Degraded while RabbitMQ or the warehouse is down
+docker compose stop rabbitmq              # the API keeps serving; /health turns Degraded
+docker compose start rabbitmq             # the API reconnects on its own within a few seconds
+```
+
+`tests/Shop.Messaging.IntegrationTests` start the same image with Testcontainers and check, through the management
+API, the topology's types and arguments; that a second host declaring it changes nothing; that the client reconnects
+and declares it again after the broker drops the connection; that confirmed messages are persistent and keep their
+order; that an unroutable message fails while the rest of its batch is confirmed; that rejected and over-limit
+messages reach the DLQ, and nacked ones never do; that a host without a broker starts at once and reports Degraded;
+and that invalid settings stop it.
+
 ## Verify
 
 ```sh
@@ -561,7 +612,7 @@ dotnet build Shop.slnx -m:1
 dotnet test Shop.slnx -m:1
 ```
 
-Integration tests use PostgreSQL 18 containers. With Docker unavailable, configure separate
+Integration tests use PostgreSQL 18 containers, and the messaging tests a RabbitMQ 4.3 container. With Docker unavailable, configure separate
 disposable databases using `SHOP_USERS_TEST_CONNECTION`, `SHOP_PRODUCTS_TEST_CONNECTION`,
 and `SHOP_CONFORMANCE_TEST_CONNECTION`. Tests apply migrations and change data.
 The conformance fixture creates its own temporary JWT signing key.
