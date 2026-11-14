@@ -605,6 +605,58 @@ order; that an unroutable message fails while the rest of its batch is confirmed
 messages reach the DLQ, and nacked ones never do; that a host without a broker starts at once and reports Degraded;
 and that invalid settings stop it.
 
+## SignalR channel security (task R4-06)
+
+The API exposes two server-to-client hubs outside the versioned REST routes:
+
+| Hub | Who can connect | Delivery used by R4-07 |
+| --- | --- | --- |
+| `/hubs/orders` | Any authenticated user | `IHubContext<OrdersHub>.Clients.User(customerId)` |
+| `/hubs/admin` | The existing `AdminOnly` policy | `IHubContext<AdminHub>.Clients.Group("admins")` |
+
+The hubs live inside Notifications. The admin hub adds every authorized connection to `admins` on connect,
+including a new connection after a reconnect. Clients have no subscribe or join-group methods. The registered
+`IUserIdProvider` takes the user's ID from the validated JWT's `sub` claim; `MapInboundClaims` stays false, and
+all of a user's connections receive messages addressed to that user. R4-07's live-update consumer can use the
+internal hubs from inside Notifications; Orders does not depend on SignalR.
+
+Use the normal JWT returned by login with the SignalR JavaScript client's `accessTokenFactory`:
+
+```js
+const connection = new signalR.HubConnectionBuilder()
+  .withUrl("/hubs/orders", { accessTokenFactory: () => accessToken })
+  .withAutomaticReconnect()
+  .build();
+await connection.start();
+```
+
+Use `/hubs/admin` with an admin token for the dashboard. The client sends `Authorization: Bearer` where the
+transport supports it; browser WebSockets and SSE send `access_token` in the query string. The API accepts that
+query parameter only under the `/hubs` path segment, and applies its existing signature, issuer, audience,
+lifetime and claim validation. REST endpoints still require the bearer header.
+
+Both hubs set `CloseOnAuthenticationExpiration`: an open connection closes when its token expires. Supply a
+fresh token before reconnecting; login remains the way to obtain one. Automatic reconnect alone cannot renew
+an expired token. R4-08's pages must reload their current state after a reconnect, since messages sent while
+disconnected aren't replayed. That task also supplies the page CSP; this task keeps the existing REST CORS policy.
+
+Serve these connections over HTTPS in production. Keep request URLs with query strings out of logs: the existing
+`Logging:LogLevel:Microsoft.AspNetCore` setting is `Warning`, and should remain so in deployed configuration.
+Proxies must also omit or redact `access_token`. These choices follow Microsoft's
+[SignalR authentication](https://learn.microsoft.com/en-us/aspnet/core/signalr/authn-and-authz?view=aspnetcore-10.0)
+and [token logging guidance](https://learn.microsoft.com/en-us/aspnet/core/signalr/security?view=aspnetcore-10.0#access-token-logging).
+
+R4-06 provides the secured channels. RabbitMQ event consumption and the browser pages arrive in R4-07 and R4-08.
+The security tests use real JWT validation and WebSocket connections through TestServer, without PostgreSQL or RabbitMQ:
+
+```sh
+dotnet test tests/Shop.Api.IntegrationTests --filter FullyQualifiedName~SignalRSecurityTests
+```
+
+They cover query and header authentication, invalid tokens and claims, customer rejection by the admin hub,
+path boundaries, delivery to all of customer A's connections without leaking to customer B, admin group membership
+after reconnecting, and open connections closing at token expiry followed by delivery with a fresh token.
+
 ## Verify
 
 ```sh

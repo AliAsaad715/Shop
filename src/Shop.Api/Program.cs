@@ -59,6 +59,7 @@ app.UseProductUploads();
 app.MapHealthChecks("/health").AllowAnonymous();
 app.MapApiDocs();
 app.MapProductImages();
+app.MapNotificationsEndpoints();
 
 var api = app.MapVersionedApi();
 api.MapUsersEndpoints();
