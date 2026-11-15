@@ -69,21 +69,36 @@ public sealed class PublisherTests(RabbitMqFixture fixture) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task MessageNoQueueIsBoundForFailsWhileTheRestOfTheBatchIsConfirmed()
+    public async Task OrderPlacedThatReachesNoQueueFailsWhileTheRestOfTheBatchIsConfirmed()
     {
-        // No queue takes status changes until the live-update queues arrive (R4-07)
-        var unroutable = RabbitMqFixture.Event(ShopTopology.RoutingKeys.OrderStatusChanged);
-        var routable = RabbitMqFixture.Event(ShopTopology.RoutingKeys.OrderPlaced);
+        // As if someone deleted the email queue: order.placed must reach a queue, and now none takes it. The next
+        // test's host declares the queue again when it connects
+        await fixture.Probe.QueueDeleteAsync(ShopTopology.EmailQueue, ifUnused: false, ifEmpty: false);
+        var placed = RabbitMqFixture.Event(ShopTopology.RoutingKeys.OrderPlaced);
+        var changed = RabbitMqFixture.Event(ShopTopology.RoutingKeys.OrderStatusChanged);
 
-        var results = await _publisher.PublishAsync([unroutable, routable], default);
+        var results = await _publisher.PublishAsync([placed, changed], default);
 
         Assert.False(results[0].Confirmed);
-        Assert.Contains("No queue is bound for 'order.status-changed'", results[0].Failure);
+        Assert.Contains("No queue is bound for 'order.placed'", results[0].Failure);
         Assert.True(results[1].Confirmed, results[1].Failure);
-        Assert.Equal(1u, await fixture.CountAsync(ShopTopology.EmailQueue));
 
         // The channel survives a return, so the next batch goes through
-        Assert.True((await _publisher.PublishAsync([RabbitMqFixture.Event(ShopTopology.RoutingKeys.OrderPlaced)], default))[0].Confirmed);
+        Assert.True((await _publisher.PublishAsync([RabbitMqFixture.Event(ShopTopology.RoutingKeys.OrderStatusChanged)], default))[0].Confirmed);
+    }
+
+    [Fact]
+    public async Task StatusChangeNobodyListensForIsConfirmedAndDropped()
+    {
+        // Until the live-update queues arrive (R4-07) no queue takes status changes, and that is fine: no page is
+        // watching. Retrying would only hold up the outbox relay
+        var changed = RabbitMqFixture.Event(ShopTopology.RoutingKeys.OrderStatusChanged);
+
+        var results = await _publisher.PublishAsync([changed], default);
+
+        Assert.Equal(PublishResult.Success(changed.MessageId), Assert.Single(results));
+        Assert.Equal(0u, await fixture.CountAsync(ShopTopology.EmailQueue));
+        Assert.Equal(0u, await fixture.CountAsync(ShopTopology.EmailDeadLetterQueue));
     }
 
     [Fact]

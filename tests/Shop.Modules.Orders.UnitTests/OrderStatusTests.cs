@@ -38,7 +38,7 @@ public sealed class OrderStatusTests
     public void PlacedOrderIsPendingWithServerComputedTotalsAndOneHistoryRow()
     {
         var customerId = Guid.CreateVersion7();
-        var order = Order.Place(customerId, [(Guid.CreateVersion7(), "Book", 19.95m, 3), (Guid.CreateVersion7(), "Lamp", 0.10m, 1)], _placedAt);
+        var order = Order.Place(customerId, "ada@shop.test", [(Guid.CreateVersion7(), "Book", 19.95m, 3), (Guid.CreateVersion7(), "Lamp", 0.10m, 1)], _placedAt);
 
         Assert.Equal(OrderStatus.Pending, order.Status);
         Assert.Equal(customerId, order.CustomerId);
@@ -55,7 +55,7 @@ public sealed class OrderStatusTests
     public void MoveToRecordsHistoryAndBumpsTheVersion()
     {
         var adminId = Guid.CreateVersion7();
-        var order = Order.Place(Guid.CreateVersion7(), [(Guid.CreateVersion7(), "Book", 10m, 1)], _placedAt);
+        var order = Order.Place(Guid.CreateVersion7(), "ada@shop.test", [(Guid.CreateVersion7(), "Book", 10m, 1)], _placedAt);
 
         order.MoveTo(OrderStatus.Confirmed, adminId, _placedAt.AddMinutes(5));
 
@@ -71,7 +71,7 @@ public sealed class OrderStatusTests
     [Fact]
     public void InvalidMoveThrowsAndChangesNothing()
     {
-        var order = Order.Place(Guid.CreateVersion7(), [(Guid.CreateVersion7(), "Book", 10m, 1)], _placedAt);
+        var order = Order.Place(Guid.CreateVersion7(), "ada@shop.test", [(Guid.CreateVersion7(), "Book", 10m, 1)], _placedAt);
 
         var error = Assert.Throws<InvalidOperationException>(() => order.MoveTo(OrderStatus.Delivered, Guid.CreateVersion7(), _placedAt));
 

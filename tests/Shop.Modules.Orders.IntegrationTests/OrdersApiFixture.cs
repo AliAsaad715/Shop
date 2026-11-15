@@ -8,7 +8,9 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Shop.Messaging.Publishing;
 using Shop.Modules.Orders.Data;
+using Shop.Modules.Orders.Outbox;
 using Shop.Modules.Products.Contracts;
 using Shop.SharedKernel.Auth;
 using Shop.SharedKernel.Diagnostics;
@@ -33,10 +35,16 @@ public class OrdersApiFixture : IAsyncLifetime
     public WebApplication App { get; private set; } = null!;
     public RecordingInventory Inventory { get; } = new();
     public OrderSaveFailure SaveFailure { get; } = new();
+    public RecordingPublisher Publisher { get; } = new();
     public TestLogSink Logs { get; } = new();
 
     // Development adds the X-Db-Queries header (task R3-04), which OrdersQueryCountFixture's tests read
     protected virtual string EnvironmentName => Environments.Production;
+
+    // False removes the background outbox relay, so a test runs each pass itself and sees rows as the save left them
+    protected virtual bool RunOutboxRelay => true;
+
+    public static string EmailOf(Guid customerId) => $"{customerId}@shop.test";
 
     public async Task InitializeAsync()
     {
@@ -59,8 +67,17 @@ public class OrdersApiFixture : IAsyncLifetime
             ["ReadRouting:Enabled"] = "false",
             // The tests run each pass themselves; the background worker never wakes during a run
             ["Orders:PendingReleases:PollInterval"] = "01:00:00",
+            // Only a save wakes the outbox relay, so a message that arrives proves the wake-up, not the poll
+            ["Orders:Outbox:PollInterval"] = "01:00:00",
+            ["Orders:Outbox:BatchSize"] = "3",
         });
         builder.Services.AddOrdersModule();
+        if (!RunOutboxRelay)
+        {
+            builder.Services.Remove(builder.Services.Single(service => service.ImplementationType == typeof(OutboxRelay)));
+        }
+
+        builder.Services.AddSingleton<IEventPublisher>(Publisher);
         builder.Services.AddDbContext<OrdersDbContext>(options => options.AddInterceptors(SaveFailure));
         builder.Services.AddErrorContract();
         builder.Services.AddSingleton<IProductCatalog, FakeProductCatalog>();
@@ -94,9 +111,29 @@ public class OrdersApiFixture : IAsyncLifetime
             await context.Database.MigrateAsync();
             await context.Orders.ExecuteDeleteAsync();
             await context.PendingReleases.ExecuteDeleteAsync();
+            await context.OutboxMessages.ExecuteDeleteAsync();
         }
 
         await App.StartAsync();
+    }
+
+    /// <summary>Runs one outbox relay pass, as the background relay would.</summary>
+    internal async Task<OutboxPass> RunOutboxPassAsync()
+    {
+        await using var scope = App.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<OutboxProcessor>().PublishPendingAsync(CancellationToken.None);
+    }
+
+    /// <summary>Every outbox row about one order, oldest first.</summary>
+    internal async Task<List<OutboxMessage>> OutboxRowsForAsync(Guid orderId)
+    {
+        await using var scope = App.Services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<OrdersDbContext>();
+        return await context.OutboxMessages
+            .FromSql($"SELECT * FROM orders.outbox_messages WHERE payload->>'orderId' = {orderId.ToString()}")
+            .OrderBy(message => message.OccurredAt).ThenBy(message => message.Id)
+            .AsNoTracking()
+            .ToListAsync();
     }
 
     public HttpClient ClientFor(Guid? userId, string? role)
@@ -117,7 +154,13 @@ public class OrdersApiFixture : IAsyncLifetime
 
     public HttpClient Anonymous() => ClientFor(null, null);
 
-    public HttpClient Customer(Guid customerId) => ClientFor(customerId, Roles.Customer);
+    // With an email in the token, as the Users module issues it
+    public HttpClient Customer(Guid customerId)
+    {
+        var client = ClientFor(customerId, Roles.Customer);
+        client.DefaultRequestHeaders.Add("X-Test-Email", EmailOf(customerId));
+        return client;
+    }
 
     public HttpClient AdminClient() => ClientFor(Admin, Roles.Admin);
 

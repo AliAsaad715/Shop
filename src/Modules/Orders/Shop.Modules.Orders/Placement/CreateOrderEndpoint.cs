@@ -56,8 +56,10 @@ internal static class CreateOrderEndpoint
             return Problems.Validation(unknown);
         }
 
+        // The email comes from the token, so the confirmation email never needs the Users module
         var order = Order.Place(
             customerId,
+            currentUser.Email,
             lines.Select(line =>
             {
                 var product = products[line!.ProductId!.Value];
@@ -107,6 +109,8 @@ internal static class CreateOrderEndpoint
 
         try
         {
+            // Saves the order with its order.placed outbox row in one transaction (OrdersDbContext), so the client
+            // never waits for RabbitMQ
             context.Orders.Add(order);
             await context.SaveChangesAsync(ct);
         }

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Shop.Modules.Orders.Data;
+using Shop.Modules.Orders.Outbox;
 using Shop.Modules.Orders.Placement;
 using Shop.Modules.Orders.Reading;
 using Shop.Modules.Orders.Releases;
@@ -26,6 +27,17 @@ public static class OrdersModule
             .Validate(options => options.PollInterval > TimeSpan.Zero, "Orders:PendingReleases:PollInterval must be more than 0.")
             .ValidateOnStart();
         services.AddHostedService<PendingReleaseWorker>();
+
+        // The transactional outbox (task R4-02): order events are saved with the order, and the relay publishes them
+        // through the host's IEventPublisher (AddShopMessaging)
+        services.AddSingleton<OutboxSignal>();
+        services.AddScoped<OutboxProcessor>();
+        services.AddOptions<OutboxOptions>()
+            .BindConfiguration(OutboxOptions.Section)
+            .Validate(OutboxOptions.IsValid,
+                "Orders:Outbox:PollInterval and Retention must be more than 0, and BatchSize between 1 and 500.")
+            .ValidateOnStart();
+        services.AddHostedService<OutboxRelay>();
 
         // One scan registers every validator in the module (placement, reading and status changes alike)
         services.AddValidatorsFromAssemblyContaining<CreateOrderRequestValidator>(includeInternalTypes: true);

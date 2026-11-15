@@ -45,6 +45,13 @@ public static class ShopTopology
         public const string AllOrderEvents = "order.*";
     }
 
+    /// <summary>
+    /// Whether an event type must reach at least one queue. <c>order.placed</c> must reach the email queue, so
+    /// RabbitMQ returns it when no queue takes it and its sender tries again. Status changes only feed live pages, so
+    /// one that no queue takes is dropped: nobody is watching, and a page reloads the order when it connects.
+    /// </summary>
+    internal static bool RequiresQueue(string routingKey) => routingKey == RoutingKeys.OrderPlaced;
+
     internal static async Task DeclareAsync(IConnection connection, CancellationToken cancellationToken)
     {
         await using var channel = await connection.CreateChannelAsync(cancellationToken: cancellationToken);
