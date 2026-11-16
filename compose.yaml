@@ -49,6 +49,31 @@ services:
       rabbitmq:
         condition: service_started
 
+  # The email worker (task R4-03): consumes order confirmations from RabbitMQ in its own container, so stopping it
+  # never touches the API, and the emails wait in the queue meanwhile. It migrates only its notifications schema.
+  #   docker compose stop worker     # orders still return 201; RabbitMQ's UI shows the messages waiting
+  #   docker compose start worker    # it drains the queue
+  worker:
+    build:
+      context: .
+      dockerfile: src/Shop.Worker/Dockerfile
+    environment:
+      DOTNET_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__Shop: Host=postgres;Port=5432;Database=${POSTGRES_DB:-shop};Username=${POSTGRES_USER:-shop};Password=${POSTGRES_PASSWORD:-shop}
+      RabbitMq__Host: rabbitmq
+      RabbitMq__UserName: ${RABBITMQ_USER:-shop}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-shop}
+    # docker compose stop sends SIGTERM and kills the container after this long. The worker takes up to 20 s to
+    # finish the email it is sending; Docker's default of 10 s would cut it off
+    stop_grace_period: 30s
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Not awaited: the worker keeps trying until RabbitMQ is up
+      rabbitmq:
+        condition: service_started
+
   # The message broker (task R4-01). The management UI is at http://localhost:15672, signed in with
   # RABBITMQ_USER and RABBITMQ_PASSWORD. The app declares the exchanges and queues itself when it connects.
   rabbitmq:

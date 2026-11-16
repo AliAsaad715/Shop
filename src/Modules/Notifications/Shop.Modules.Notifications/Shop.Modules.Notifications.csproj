@@ -4,14 +4,18 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
-  <!-- Only SharedKernel and *.Contracts projects; never another module -->
+  <!-- Only SharedKernel, Messaging and *.Contracts projects; never another module -->
   <ItemGroup>
     <ProjectReference Include="..\..\..\Shop.SharedKernel\Shop.SharedKernel.csproj" />
     <ProjectReference Include="..\Shop.Modules.Notifications.Contracts\Shop.Modules.Notifications.Contracts.csproj" />
+    <!-- The email worker (task R4-03) consumes order.placed: OrderPlacedEvent and the queue consumer -->
+    <ProjectReference Include="..\..\..\Shop.Messaging\Shop.Messaging.csproj" />
+    <ProjectReference Include="..\..\Orders\Shop.Modules.Orders.Contracts\Shop.Modules.Orders.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Shop.Api.IntegrationTests" />
+    <InternalsVisibleTo Include="Shop.Modules.Notifications.IntegrationTests" />
   </ItemGroup>
 
 </Project>

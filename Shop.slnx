@@ -3,6 +3,7 @@
     <Project Path="src/Shop.Api/Shop.Api.csproj" />
     <Project Path="src/Shop.Messaging/Shop.Messaging.csproj" />
     <Project Path="src/Shop.SharedKernel/Shop.SharedKernel.csproj" />
+    <Project Path="src/Shop.Worker/Shop.Worker.csproj" />
   </Folder>
   <Folder Name="/src/Modules/" />
   <Folder Name="/src/Modules/Notifications/">
@@ -28,6 +29,7 @@
     <Project Path="tests/Shop.Messaging.IntegrationTests/Shop.Messaging.IntegrationTests.csproj" />
     <Project Path="tests/Shop.Modules.Orders.IntegrationTests/Shop.Modules.Orders.IntegrationTests.csproj" />
     <Project Path="tests/Shop.Modules.Orders.UnitTests/Shop.Modules.Orders.UnitTests.csproj" />
+    <Project Path="tests/Shop.Modules.Notifications.IntegrationTests/Shop.Modules.Notifications.IntegrationTests.csproj" />
     <Project Path="tests/Shop.Modules.Products.IntegrationTests/Shop.Modules.Products.IntegrationTests.csproj" />
     <Project Path="tests/Shop.Modules.Products.UnitTests/Shop.Modules.Products.UnitTests.csproj" />
     <Project Path="tests/Shop.Modules.Users.IntegrationTests/Shop.Modules.Users.IntegrationTests.csproj" />

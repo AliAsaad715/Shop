@@ -65,16 +65,19 @@ public sealed class RabbitMqFixture : IAsyncLifetime
     /// A host with only the messaging services, configured like the API but pointing at this container. Each host
     /// gets its own connection name, so a test can find and close exactly its connection.
     /// </summary>
-    public IHost CreateHost(string? clientName = null, Dictionary<string, string?>? overrides = null) => BuildHost(new Dictionary<string, string?>
-    {
-        ["RabbitMq:Host"] = _container.Hostname,
-        ["RabbitMq:Port"] = _container.GetMappedPublicPort(5672).ToString(),
-        ["RabbitMq:UserName"] = User,
-        ["RabbitMq:Password"] = Password,
-    }, overrides, clientName);
+    public IHost CreateHost(
+        string? clientName = null, Dictionary<string, string?>? overrides = null, Action<IServiceCollection>? services = null) =>
+        BuildHost(new Dictionary<string, string?>
+        {
+            ["RabbitMq:Host"] = _container.Hostname,
+            ["RabbitMq:Port"] = _container.GetMappedPublicPort(5672).ToString(),
+            ["RabbitMq:UserName"] = User,
+            ["RabbitMq:Password"] = Password,
+        }, overrides, clientName, services);
 
     public static IHost BuildHost(
-        Dictionary<string, string?> settings, Dictionary<string, string?>? overrides = null, string? clientName = null)
+        Dictionary<string, string?> settings, Dictionary<string, string?>? overrides = null, string? clientName = null,
+        Action<IServiceCollection>? services = null)
     {
         foreach (var setting in overrides ?? [])
         {
@@ -85,16 +88,17 @@ public sealed class RabbitMqFixture : IAsyncLifetime
         builder.Configuration.AddInMemoryCollection(settings);
         builder.Services.AddLogging();
         builder.Services.AddShopMessaging(clientName ?? NewClientName());
+        services?.Invoke(builder.Services);
         return builder.Build();
     }
 
     public static string NewClientName() => $"shop-tests-{Guid.NewGuid():N}"[..19];
 
     /// <summary>Starts the host and waits until its connector has connected and declared the topology.</summary>
-    public async Task<IHost> StartConnectedHostAsync(string? clientName = null)
+    public async Task<IHost> StartConnectedHostAsync(string? clientName = null, Action<IServiceCollection>? services = null)
     {
         await EnsureProbeAsync();
-        var host = CreateHost(clientName);
+        var host = CreateHost(clientName, services: services);
         await host.StartAsync();
         await WaitUntilAsync(() => host.Services.GetRequiredService<RabbitMqConnection>().IsOpen, "the host to connect");
         return host;

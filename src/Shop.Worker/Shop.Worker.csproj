@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <!-- The email worker (task R4-03): its own process and container, so stopping it never touches the API.
+       Only the Notifications module, which never references another module's implementation or tables -->
+  <ItemGroup>
+    <ProjectReference Include="..\Shop.Messaging\Shop.Messaging.csproj" />
+    <ProjectReference Include="..\Modules\Notifications\Shop.Modules.Notifications\Shop.Modules.Notifications.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Lets dotnet ef use this host as the startup project for the Notifications migrations -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>

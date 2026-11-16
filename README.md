@@ -705,6 +705,50 @@ They cover query and header authentication, invalid tokens and claims, customer 
 path boundaries, delivery to all of customer A's connections without leaking to customer B, admin group membership
 after reconnecting, and open connections closing at token expiry followed by delivery with a fresh token.
 
+## Email worker (task R4-03)
+
+[`src/Shop.Worker`](src/Shop.Worker) is a separate .NET Worker Service in its own container (`worker` in compose).
+Stopping it never touches the API: orders still return 201, and their confirmation emails wait in RabbitMQ until it
+starts again. It registers only the Notifications module (`AddNotificationsWorker`), so it has no route to the Orders
+or Users tables; everything an email needs comes in the `order.placed` message.
+
+For each message from `email.order-confirmation`:
+
+1. If its message ID (the outbox row ID) is in `notifications.processed_messages`, it was handled before: acknowledge
+   it without sending again.
+2. Otherwise send the email, record the ID, then acknowledge. Recording after sending means a crash between the two
+   costs one duplicate email, never a lost one.
+3. A message that can never be sent (unreadable, no customer email, no message ID) is rejected without requeue and
+   goes straight to the DLQ. Any other failure is rejected with requeue: RabbitMQ counts it, delivers it again, and
+   moves it to the DLQ on the sixth failure. Backoff between tries and sorting out permanent mail errors come in R4-05.
+
+The consumer ([`QueueConsumer`](src/Shop.Messaging/Consuming/QueueConsumer.cs), in the messaging library) uses manual
+acks, handles one message at a time, and has a prefetch of 5, so a crash returns at most 5 messages to the queue and
+other workers can take the rest. After a dropped connection the client brings the consumer back by itself; if RabbitMQ
+closes just its channel, or cancels it because the queue was deleted, it declares the topology again and starts over.
+
+Stopping is graceful (`docker compose stop` sends SIGTERM; `stop_grace_period` is 30 s):
+
+1. Cancel the consumer, so RabbitMQ sends nothing new.
+2. Let the message in progress finish and acknowledge it (up to 20 s).
+3. Give the prefetched messages that never started back with `basic.nack`. Since RabbitMQ 4.3 a nack doesn't count
+   as a failed delivery, so a restart never uses up a message's retries. A failure uses `basic.reject`, which does.
+
+Until R4-04 adds the mail provider, `LogOnlyEmailSender` logs each email's subject and the recipient's domain instead
+of sending it. The worker migrates only its own `notifications` schema at startup.
+
+```sh
+docker compose stop worker      # place orders: each returns 201 at once
+# RabbitMQ UI > Queues: email.order-confirmation shows them ready
+docker compose start worker     # the queue drains; docker compose logs worker shows one email per order
+```
+
+`ConsumerTests` (RabbitMQ container) cover the ack after the handler, a counted retry ending in the DLQ, a reject going
+straight there, a handler that throws, the prefetch limit, a graceful stop that finishes the current message and
+returns the prefetched one uncounted, and recovery after a dropped connection or a deleted queue.
+`OrderConfirmationHandlerTests` (Postgres container) cover one email per message even when delivered twice, nothing
+recorded when sending fails, rejected messages, and the email's content.
+
 ## Verify
 
 ```sh
@@ -714,7 +758,7 @@ dotnet test Shop.slnx -m:1
 
 Integration tests use PostgreSQL 18 containers, and the messaging tests a RabbitMQ 4.3 container. With Docker unavailable, configure separate
 disposable databases using `SHOP_USERS_TEST_CONNECTION`, `SHOP_PRODUCTS_TEST_CONNECTION`,
-and `SHOP_CONFORMANCE_TEST_CONNECTION`. Tests apply migrations and change data.
+`SHOP_ORDERS_TEST_CONNECTION`, `SHOP_NOTIFICATIONS_TEST_CONNECTION` and `SHOP_CONFORMANCE_TEST_CONNECTION`. Tests apply migrations and change data.
 The conformance fixture creates its own temporary JWT signing key.
 
 See [security-headers.http](tests/http/security-headers.http) for manual header and CORS checks.
