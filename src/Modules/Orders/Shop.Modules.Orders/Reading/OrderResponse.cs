@@ -4,7 +4,7 @@ using Shop.Modules.Orders.Domain;
 namespace Shop.Modules.Orders.Reading;
 
 internal sealed record OrderResponse(
-    Guid Id, Guid CustomerId, OrderStatus Status, decimal Total, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt,
+    Guid Id, Guid CustomerId, OrderStatus Status, decimal Total, int Version, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt,
     IReadOnlyList<OrderLineResponse> Lines, IReadOnlyList<OrderStatusChangeResponse> History)
 {
     /// <summary>
@@ -13,7 +13,7 @@ internal sealed record OrderResponse(
     /// in memory, just placed or changed.
     /// </summary>
     public static readonly Expression<Func<Order, OrderResponse>> Projection = order => new OrderResponse(
-        order.Id, order.CustomerId, order.Status, order.Total, order.CreatedAt, order.UpdatedAt,
+        order.Id, order.CustomerId, order.Status, order.Total, order.Version, order.CreatedAt, order.UpdatedAt,
         order.Lines.OrderBy(line => line.Id)
             .Select(line => new OrderLineResponse(line.ProductId, line.ProductName, line.UnitPrice, line.Quantity, line.LineTotal))
             .ToList(),

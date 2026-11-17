@@ -16,11 +16,21 @@ namespace Shop.Modules.Notifications;
 
 public static class NotificationsModule
 {
+    /// <summary>
+    /// The API's secured hubs and live order subscription. Needs <see cref="MessagingRegistration.AddShopMessaging"/>;
+    /// a missing broker degrades the subscription without delaying API startup.
+    /// </summary>
     public static IServiceCollection AddNotificationsModule(this IServiceCollection services)
     {
         services.AddSignalR();
         // JWT keeps its original claim names, so SignalR must use sub rather than NameIdentifier.
         services.AddSingleton<IUserIdProvider, SubUserIdProvider>();
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<RecentRealtimeMessages>();
+        services.AddSingleton<LiveUpdateHandler>();
+        services.AddSingleton<LiveUpdateState>();
+        services.AddHostedService<LiveUpdateConsumer>();
+        services.AddHealthChecks().AddCheck<LiveUpdateHealthCheck>("realtime");
         return services;
     }
 

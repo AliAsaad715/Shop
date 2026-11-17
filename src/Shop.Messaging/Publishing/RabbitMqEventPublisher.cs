@@ -7,9 +7,8 @@ namespace Shop.Messaging.Publishing;
 
 /// <summary>
 /// Publishes on one channel with publisher confirms: RabbitMQ answers every message with an ack once it has stored it
-/// in all the queues it routes to, or a nack when it can't. Event types that must reach a queue
-/// (<see cref="ShopTopology.RequiresQueue"/>) are mandatory, so one that no queue takes comes back as a return
-/// instead of vanishing.
+/// in the queues it routes to, or a nack when it can't. An order placement has a separately confirmed, mandatory
+/// publish directly to the email queue, so temporary live subscriptions cannot mask a missing email destination.
 /// </summary>
 internal sealed class RabbitMqEventPublisher(
     RabbitMqConnection connection, IOptions<RabbitMqOptions> options, ILogger<RabbitMqEventPublisher> logger)
@@ -92,6 +91,23 @@ internal sealed class RabbitMqEventPublisher(
 
     private async Task<PublishResult> PublishOneAsync(IChannel channel, OutgoingMessage message, CancellationToken cancellationToken)
     {
+        // Both sends start before waiting, preserving batch order on each destination. A missing email queue still
+        // allows live pages to update, but the combined result fails so the outbox keeps the event for a later retry.
+        var live = PublishDestinationAsync(channel, message, ShopTopology.EventsExchange, message.RoutingKey,
+            mandatory: false, cancellationToken);
+        if (!ShopTopology.RequiresEmail(message.RoutingKey)) return await live;
+
+        var email = PublishDestinationAsync(channel, message, ShopTopology.DefaultExchange, ShopTopology.EmailQueue,
+            mandatory: true, cancellationToken);
+        var results = await Task.WhenAll(email, live);
+        return results.FirstOrDefault(result => !result.Confirmed) ?? results[0];
+    }
+
+    private async Task<PublishResult> PublishDestinationAsync(
+        IChannel channel, OutgoingMessage message, string exchange, string routingKey, bool mandatory,
+        CancellationToken cancellationToken)
+    {
+        // A fresh properties object per physical publish: confirm tracking may add its own headers.
         var properties = new BasicProperties
         {
             MessageId = message.MessageId.ToString(),
@@ -106,13 +122,14 @@ internal sealed class RabbitMqEventPublisher(
         {
             // With confirm tracking on, this completes only when RabbitMQ acks the message
             await channel.BasicPublishAsync(
-                ShopTopology.EventsExchange, message.RoutingKey, mandatory: ShopTopology.RequiresQueue(message.RoutingKey),
+                exchange, routingKey, mandatory,
                 properties, message.Body, cancellationToken);
             return PublishResult.Success(message.MessageId);
         }
         catch (PublishException error) when (error.IsReturn)
         {
-            return PublishResult.Failed(message.MessageId, $"No queue is bound for '{message.RoutingKey}', so RabbitMQ returned it");
+            return PublishResult.Failed(message.MessageId,
+                $"No queue is bound for '{routingKey}' on exchange '{exchange}', so RabbitMQ returned it");
         }
         catch (PublishException)
         {

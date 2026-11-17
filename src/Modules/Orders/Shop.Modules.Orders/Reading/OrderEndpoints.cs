@@ -53,7 +53,7 @@ internal static class OrderEndpoints
             var items = await orders.OrderByDescending(order => order.CreatedAt).ThenByDescending(order => order.Id)
                 .Skip((int)(((long)request.Page - 1) * request.PageSize)).Take(request.PageSize)
                 .Select(order => new OrderSummaryResponse(
-                    order.Id, order.CustomerId, order.Status, order.Total,
+                    order.Id, order.CustomerId, order.Status, order.Total, order.Version,
                     order.Lines.Sum(line => line.Quantity), order.CreatedAt, order.UpdatedAt))
                 .ToListAsync(token);
             return new PagedResponse<OrderSummaryResponse>(items, request.Page, request.PageSize, totalCount);
