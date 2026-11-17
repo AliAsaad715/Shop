@@ -1,4 +1,5 @@
 namespace Shop.Modules.Notifications.Email;
 
 /// <summary>A plain-text email to one recipient.</summary>
-internal sealed record EmailMessage(string To, string Subject, string TextBody);
+/// <param name="Id">The RabbitMQ message it answers. It becomes the email's Message-ID, so a repeat carries the same one.</param>
+internal sealed record EmailMessage(Guid Id, string To, string Subject, string TextBody);

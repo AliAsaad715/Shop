@@ -8,7 +8,8 @@ namespace Shop.Modules.Notifications.OrderConfirmation;
 /// <summary>The confirmation a customer gets once their order is saved, built only from the event.</summary>
 internal static class OrderConfirmationEmail
 {
-    public static EmailMessage From(OrderPlacedEvent order, string to)
+    /// <param name="messageId">The RabbitMQ message it answers, which becomes the email's Message-ID.</param>
+    public static EmailMessage From(OrderPlacedEvent order, string to, Guid messageId)
     {
         var amounts = CultureInfo.InvariantCulture;
         var body = new StringBuilder()
@@ -29,6 +30,6 @@ internal static class OrderConfirmationEmail
             .AppendLine()
             .AppendLine("Shop");
 
-        return new EmailMessage(to, $"We received your order {order.OrderId.ToString()[..8]}", body.ToString());
+        return new EmailMessage(messageId, to, $"We received your order {order.OrderId.ToString()[..8]}", body.ToString());
     }
 }
