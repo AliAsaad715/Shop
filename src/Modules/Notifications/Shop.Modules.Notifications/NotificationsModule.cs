@@ -35,8 +35,17 @@ public static class NotificationsModule
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<ProcessedMessages>();
 
-        // Logs instead of sending until task R4-04 adds the mail provider
-        services.TryAddSingleton<IEmailSender, LogOnlyEmailSender>();
+        // Mailpit or a real SMTP provider, by Email:Provider (task R4-04). A wrong Email section stops the worker at
+        // startup rather than at its first email
+        services.AddOptions<EmailOptions>()
+            .BindConfiguration(EmailOptions.Section)
+            .Validate(EmailOptions.HasValidFrom, "Set Email__From to the sender, such as \"Shop <orders@shop.local>\".")
+            .Validate(EmailOptions.HasServer,
+                "Email__Provider must be Mailpit (with Email__Mailpit__Host and Port) or Smtp (with Email__Smtp__Host, Port, " +
+                "UserName and Password).")
+            .Validate(EmailOptions.HasValidTimeout, "Email:Timeout must be more than 0 and at most 60 seconds.")
+            .ValidateOnStart();
+        services.TryAddSingleton<IEmailSender, SmtpEmailSender>();
         services.AddQueueConsumer<OrderConfirmationHandler>(ShopTopology.EmailQueue, prefetch: 5);
         return services;
     }

@@ -63,6 +63,17 @@ services:
       RabbitMq__Host: rabbitmq
       RabbitMq__UserName: ${RABBITMQ_USER:-shop}
       RabbitMq__Password: ${RABBITMQ_PASSWORD:-shop}
+      # Email (task R4-04). The one switch: Mailpit catches every email; Smtp sends for real with the SMTP_* settings.
+      # k6 runs must stay on Mailpit: their orders use made-up addresses, and a real account would be blocked
+      Email__Provider: ${EMAIL_PROVIDER:-Mailpit}
+      Email__From: ${EMAIL_FROM:-Shop <orders@shop.local>}
+      Email__Mailpit__Host: mailpit
+      Email__Mailpit__Port: 1025
+      Email__Smtp__Host: ${SMTP_HOST:-smtp.gmail.com}
+      Email__Smtp__Port: ${SMTP_PORT:-587}
+      Email__Smtp__Security: ${SMTP_SECURITY:-StartTls}
+      Email__Smtp__UserName: ${SMTP_USER:-}
+      Email__Smtp__Password: ${SMTP_PASSWORD:-}
     # docker compose stop sends SIGTERM and kills the container after this long. The worker takes up to 20 s to
     # finish the email it is sending; Docker's default of 10 s would cut it off
     stop_grace_period: 30s
@@ -73,6 +84,20 @@ services:
       # Not awaited: the worker keeps trying until RabbitMQ is up
       rabbitmq:
         condition: service_started
+      mailpit:
+        condition: service_started
+
+  # Catches every email the worker sends while Email__Provider is Mailpit (task R4-04), so local runs and k6 never
+  # mail a real address. Its inbox is at http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.33.1
+    environment:
+      # Keeps the newest 5,000 and deletes older ones; a k6 run sends one email per order
+      MP_MAX_MESSAGES: 5000
+    ports:
+      # Localhost only: the inbox, and SMTP for a worker run with dotnet run
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+      - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
 
   # The message broker (task R4-01). The management UI is at http://localhost:15672, signed in with
   # RABBITMQ_USER and RABBITMQ_PASSWORD. The app declares the exchanges and queues itself when it connects.

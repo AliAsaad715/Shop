@@ -45,7 +45,7 @@ internal sealed class OrderConfirmationHandler(
             return MessageOutcome.Done;
         }
 
-        await sender.SendAsync(OrderConfirmationEmail.From(order, order.CustomerEmail), cancellationToken);
+        await sender.SendAsync(OrderConfirmationEmail.From(order, order.CustomerEmail, messageId), cancellationToken);
         await processed.RecordAsync(messageId, message.Type, cancellationToken);
         logger.LogInformation("Sent the confirmation for order {OrderId}", order.OrderId);
         return MessageOutcome.Done;

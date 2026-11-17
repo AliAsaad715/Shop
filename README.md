@@ -734,13 +734,12 @@ Stopping is graceful (`docker compose stop` sends SIGTERM; `stop_grace_period` i
 3. Give the prefetched messages that never started back with `basic.nack`. Since RabbitMQ 4.3 a nack doesn't count
    as a failed delivery, so a restart never uses up a message's retries. A failure uses `basic.reject`, which does.
 
-Until R4-04 adds the mail provider, `LogOnlyEmailSender` logs each email's subject and the recipient's domain instead
-of sending it. The worker migrates only its own `notifications` schema at startup.
+The emails go out over SMTP (task R4-04, below). The worker migrates only its own `notifications` schema at startup.
 
 ```sh
 docker compose stop worker      # place orders: each returns 201 at once
 # RabbitMQ UI > Queues: email.order-confirmation shows them ready
-docker compose start worker     # the queue drains; docker compose logs worker shows one email per order
+docker compose start worker     # the queue drains, and Mailpit (http://localhost:8025) shows one email per order
 ```
 
 `ConsumerTests` (RabbitMQ container) cover the ack after the handler, a counted retry ending in the DLQ, a reject going
@@ -748,6 +747,45 @@ straight there, a handler that throws, the prefetch limit, a graceful stop that 
 returns the prefetched one uncounted, and recovery after a dropped connection or a deleted queue.
 `OrderConfirmationHandlerTests` (Postgres container) cover one email per message even when delivered twice, nothing
 recorded when sending fails, rejected messages, and the email's content.
+
+## Sending email (task R4-04)
+
+The worker sends each email over SMTP with MailKit. One setting, `Email:Provider` (`EMAIL_PROVIDER` in `.env`),
+chooses where it goes:
+
+| `EMAIL_PROVIDER` | Goes to | Sign-in | Use it for |
+| --- | --- | --- | --- |
+| `Mailpit` (default) | The `mailpit` container, inbox at `http://localhost:8025` | None | Local runs and every k6 run |
+| `Smtp` | A real provider, such as Gmail | `SMTP_USER` and `SMTP_PASSWORD`, over TLS | Demos with real inboxes |
+
+k6 runs must stay on Mailpit: their orders use made-up addresses, and a real account that bounces thousands of
+emails gets blocked. Mailpit keeps the newest 5,000 emails.
+
+To send with Gmail, turn on 2-Step Verification for the account, create an app password (Google Account > Security >
+App passwords), and set in `.env`:
+
+```sh
+EMAIL_PROVIDER=Smtp
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=you@gmail.com
+SMTP_PASSWORD=<the 16-letter app password>
+EMAIL_FROM=Shop <you@gmail.com>   # Gmail sends from your own address
+```
+
+Then `docker compose up -d worker` recreates the worker with the new settings. `SMTP_SECURITY` is `StartTls` (port
+587) by default, or `SslOnConnect` for port 465. With `StartTls` the connection fails if the server can't encrypt, so
+the password never travels in plain text. `None` exists only for a server on the same machine, such as Mailpit.
+
+Every email's Message-ID comes from its RabbitMQ message ID. If the worker sends an email twice (a crash between sending
+it and recording it), both copies carry the same Message-ID, so the inbox can tell they are one message. A wrong
+`Email` section (no sender, or `Smtp` without a host, user or password) stops the worker at startup. A wrong password
+fails each try, so after six tries the message lands in the DLQ; R4-05 adds the waiting between tries.
+
+`SmtpEmailSenderTests` run the sender against a small SMTP server inside the test, so they need no container: Mailpit
+mode sends without signing in, with the right sender, subject, body and Message-ID; Smtp mode signs in; a wrong
+password is refused; the default `StartTls` refuses to sign in to a server that can't encrypt; and wrong settings fail
+at startup.
 
 ## Verify
 

@@ -4,6 +4,11 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- SMTP for the email worker (task R4-04): Mailpit locally, a real provider such as Gmail otherwise -->
+    <PackageReference Include="MailKit" />
+  </ItemGroup>
+
   <!-- Only SharedKernel, Messaging and *.Contracts projects; never another module -->
   <ItemGroup>
     <ProjectReference Include="..\..\..\Shop.SharedKernel\Shop.SharedKernel.csproj" />

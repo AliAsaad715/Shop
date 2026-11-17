@@ -34,6 +34,7 @@ public sealed class OrderConfirmationHandlerTests(NotificationsFixture fixture) 
 
         var email = Assert.Single(fixture.Sender.Sent);
         Assert.Equal("ada@shop.test", email.To);
+        Assert.Equal(message.MessageId, email.Id);
         Assert.Equal($"We received your order {order.OrderId.ToString()[..8]}", email.Subject);
         var recorded = Assert.Single(await ProcessedAsync());
         Assert.Equal(message.MessageId, recorded.MessageId);
@@ -88,7 +89,7 @@ public sealed class OrderConfirmationHandlerTests(NotificationsFixture fixture) 
     {
         var order = NotificationsFixture.Order();
 
-        var email = OrderConfirmationEmail.From(order, "ada@shop.test");
+        var email = OrderConfirmationEmail.From(order, "ada@shop.test", Guid.CreateVersion7());
 
         Assert.Contains($"Order: {order.OrderId}", email.TextBody);
         Assert.Contains("Placed: 2026-11-15 09:30 UTC", email.TextBody);
