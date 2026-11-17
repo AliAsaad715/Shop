@@ -36,6 +36,15 @@ internal sealed class FakeSmtpServer : IAsyncDisposable
     /// <summary>Every command a client sent, so a test can prove what never went over the wire.</summary>
     public ConcurrentQueue<string> Commands { get; } = new();
 
+    /// <summary>
+    /// A reply to give in place of the usual one, by command (MAIL, RCPT or DATA), such as "550 5.1.1 No such user",
+    /// as a real server refusing something would. <see cref="AfterContent"/> is the reply once the whole email has
+    /// arrived, where real servers refuse content, such as spam.
+    /// </summary>
+    public ConcurrentDictionary<string, string> Replies { get; } = new();
+
+    public const string AfterContent = "END-OF-DATA";
+
     public async ValueTask DisposeAsync()
     {
         await _stop.CancelAsync();
@@ -73,6 +82,12 @@ internal sealed class FakeSmtpServer : IAsyncDisposable
         {
             Commands.Enqueue(line);
             var verb = line.Split(' ')[0].ToUpperInvariant();
+            if (Replies.TryGetValue(verb, out var reply))
+            {
+                await writer.WriteLineAsync(reply);
+                continue;
+            }
+
             switch (verb)
             {
                 case "EHLO":
@@ -102,7 +117,14 @@ internal sealed class FakeSmtpServer : IAsyncDisposable
                     break;
                 case "DATA":
                     await writer.WriteLineAsync("354 End data with <CR><LF>.<CR><LF>");
-                    Received.Enqueue(await ReadMessageAsync(reader));
+                    var message = await ReadMessageAsync(reader);
+                    if (Replies.TryGetValue(AfterContent, out var refusal))
+                    {
+                        await writer.WriteLineAsync(refusal);
+                        break;
+                    }
+
+                    Received.Enqueue(message);
                     await writer.WriteLineAsync("250 2.0.0 Queued");
                     break;
                 case "QUIT":

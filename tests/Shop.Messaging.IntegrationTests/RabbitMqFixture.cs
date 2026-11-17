@@ -30,10 +30,12 @@ public sealed class RabbitMqFixture : IAsyncLifetime
     private const string User = "shop";
     private const string Password = "shop";
 
+    // The compose file's plugin list (shovel included), so the README's move-back steps are tested as written
     private readonly RabbitMqContainer _container = new RabbitMqBuilder(Image)
         .WithUsername(User)
         .WithPassword(Password)
         .WithPortBinding(15672, true)
+        .WithResourceMapping(File.ReadAllBytes(RepositoryFile("rabbitmq/enabled_plugins")), "/etc/rabbitmq/enabled_plugins")
         .Build();
 
     private IConnection _probe = null!;
@@ -93,6 +95,42 @@ public sealed class RabbitMqFixture : IAsyncLifetime
     }
 
     public static string NewClientName() => $"shop-tests-{Guid.NewGuid():N}"[..19];
+
+    /// <summary>
+    /// Moves every message now in the dead-letter queue back to the email queue, exactly as the README's command does:
+    /// a shovel that copies as many messages as the queue held when it started, then deletes itself.
+    /// </summary>
+    public async Task MoveDeadLettersBackAsync()
+    {
+        using var response = await Management.PutAsJsonAsync("parameters/shovel/%2F/email-dlq-move-back", new
+        {
+            value = new Dictionary<string, string>
+            {
+                ["src-protocol"] = "amqp091",
+                ["src-uri"] = "amqp://",
+                ["src-queue"] = ShopTopology.EmailDeadLetterQueue,
+                ["dest-protocol"] = "amqp091",
+                ["dest-uri"] = "amqp://",
+                ["dest-queue"] = ShopTopology.EmailQueue,
+                ["src-delete-after"] = "queue-length",
+            },
+        });
+        response.EnsureSuccessStatusCode();
+    }
+
+    // A file from the repository, found by walking up from the test's output folder to Shop.slnx
+    private static string RepositoryFile(string path)
+    {
+        for (var folder = new DirectoryInfo(AppContext.BaseDirectory); folder is not null; folder = folder.Parent)
+        {
+            if (File.Exists(Path.Combine(folder.FullName, "Shop.slnx")))
+            {
+                return Path.Combine(folder.FullName, path);
+            }
+        }
+
+        throw new FileNotFoundException("Shop.slnx wasn't found above the test's output folder.", path);
+    }
 
     /// <summary>Starts the host and waits until its connector has connected and declared the topology.</summary>
     public async Task<IHost> StartConnectedHostAsync(string? clientName = null, Action<IServiceCollection>? services = null)

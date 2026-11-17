@@ -1,3 +1,4 @@
+using System.Net.Sockets;
 using MailKit.Security;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -74,6 +75,46 @@ public sealed class SmtpEmailSenderTests
     }
 
     [Theory]
+    [InlineData("RCPT", "550 5.1.1 No such user", "Permanent")]
+    [InlineData("RCPT", "452 4.2.2 Mailbox full, try later", "Temporary")]
+    [InlineData("MAIL", "421 4.7.0 Too busy, try again later", "Temporary")]
+    [InlineData("MAIL", "553 5.7.1 Sender address not allowed", "Settings")]
+    [InlineData(FakeSmtpServer.AfterContent, "554 5.7.1 Message refused as spam", "Permanent")]
+    [InlineData("DATA", "554 5.5.1 Transaction failed", "Settings")]
+    public async Task ARealServersRefusalIsSortedIntoTheRightKind(string command, string reply, string kind)
+    {
+        await using var server = new FakeSmtpServer();
+        server.Replies[command] = reply;
+
+        var error = await Record.ExceptionAsync(() => Sender(new()
+        {
+            ["Email:Provider"] = "Mailpit", ["Email:Mailpit:Host"] = "127.0.0.1", ["Email:Mailpit:Port"] = $"{server.Port}",
+        }).SendAsync(Email, CancellationToken.None));
+
+        Assert.NotNull(error);
+        Assert.Equal(kind, EmailFailures.Classify(error).ToString());
+        Assert.Empty(server.Received);
+    }
+
+    [Fact]
+    public async Task AServerThatIsDownIsATemporaryFailure()
+    {
+        var server = new FakeSmtpServer();
+        var port = server.Port;
+        await server.DisposeAsync();
+
+        var error = await Record.ExceptionAsync(() => Sender(new()
+        {
+            ["Email:Provider"] = "Mailpit", ["Email:Mailpit:Host"] = "127.0.0.1", ["Email:Mailpit:Port"] = $"{port}",
+        }).SendAsync(Email, CancellationToken.None));
+
+        Assert.Equal("Temporary", EmailFailures.Classify(Assert.IsType<SocketException>(error)).ToString());
+    }
+
+    [Theory]
+    [InlineData("Email:SendAttempts", "0")]
+    [InlineData("Email:SendAttempts", "6")]
+    [InlineData("Email:RetryDelay", "00:00:11")]
     [InlineData("Email:From", "not an address")]
     [InlineData("Email:Mailpit:Host", "")]
     [InlineData("Email:Mailpit:Port", "0")]

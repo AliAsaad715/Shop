@@ -779,13 +779,69 @@ the password never travels in plain text. `None` exists only for a server on the
 
 Every email's Message-ID comes from its RabbitMQ message ID. If the worker sends an email twice (a crash between sending
 it and recording it), both copies carry the same Message-ID, so the inbox can tell they are one message. A wrong
-`Email` section (no sender, or `Smtp` without a host, user or password) stops the worker at startup. A wrong password
-fails each try, so after six tries the message lands in the DLQ; R4-05 adds the waiting between tries.
+`Email` section (no sender, or `Smtp` without a host, user or password) stops the worker at startup. What happens when
+a send fails is in the next section.
 
 `SmtpEmailSenderTests` run the sender against a small SMTP server inside the test, so they need no container: Mailpit
 mode sends without signing in, with the right sender, subject, body and Message-ID; Smtp mode signs in; a wrong
 password is refused; the default `StartTls` refuses to sign in to a server that can't encrypt; and wrong settings fail
 at startup.
+
+## Retries and the dead-letter queue (task R4-05)
+
+When an email can't be sent, the worker sorts the failure ([`EmailFailures`](src/Modules/Notifications/Shop.Modules.Notifications/Email/EmailFailures.cs))
+by whether trying again can help:
+
+| Kind | Examples | What the worker does |
+| --- | --- | --- |
+| Temporary | Mail server down or slow, a network error, any `4xx` reply | Tries again itself, 3 tries in all, waiting about 1 s and then 2 s. If all fail, `basic.reject` with requeue: RabbitMQ counts the failure and delivers it again |
+| Permanent | A malformed address, `550 No such user`, content refused (a `5xx` after the email) | `basic.reject` without requeue: straight to the DLQ, as trying again sends the same thing |
+| Our settings | A wrong password, a server without TLS, our sender address refused | Back to RabbitMQ at once, counted, without trying again in the worker: retrying can't fix it, and repeated failed sign-ins can get the account locked |
+
+The email queue allows six deliveries, so a message that keeps failing ends up in `email.order-confirmation.dlq`, and
+the worker's log says why for every try. The waits have a little randomness, so workers that failed together don't
+retry in step. `Email:SendAttempts` (3) and `Email:RetryDelay` (1 s, doubling) tune the tries in the worker.
+
+Stopping the worker never costs a message a try. A message that never started goes back with `basic.nack`, and so does
+one still sending when the 20-second graceful stop runs out. Since RabbitMQ 4.3 a nack isn't counted.
+
+### Looking at the DLQ and moving messages back
+
+Compose switches on RabbitMQ's shovel plugin ([`rabbitmq/enabled_plugins`](rabbitmq/enabled_plugins)); an existing
+RabbitMQ container picks it up with `docker compose up -d rabbitmq`.
+
+1. **Look.** In the management UI (`http://localhost:15672`), open Queues and Streams, then
+   `email.order-confirmation.dlq`, then Get messages. With Ack mode "Nack message requeue true" the messages stay in
+   the queue. The `x-first-death-reason` header is `rejected` (refused for good) or `delivery_limit` (six failed
+   tries); the worker's log has the details.
+2. **Fix the cause**, such as the SMTP password in `.env`, followed by `docker compose up -d worker`.
+3. **Move them back**, either in the UI (on the DLQ's page, Move messages, destination queue
+   `email.order-confirmation`), or with one command:
+
+   ```sh
+   docker compose exec rabbitmq rabbitmqctl set_parameter shovel email-dlq-move-back \
+     '{"src-protocol": "amqp091", "src-uri": "amqp://", "src-queue": "email.order-confirmation.dlq",
+       "dest-protocol": "amqp091", "dest-uri": "amqp://", "dest-queue": "email.order-confirmation",
+       "src-delete-after": "queue-length"}'
+   ```
+
+   The shovel moves the messages the DLQ holds when it starts, then deletes itself. A moved message keeps its message
+   ID, so one that was in fact emailed isn't emailed again, and RabbitMQ gives it six new tries. Moving messages back
+   before fixing the cause only sends them round again.
+
+The interview's mail failure, step by step:
+
+1. Set `EMAIL_PROVIDER=Smtp` and a wrong `SMTP_PASSWORD` in `.env`, then `docker compose up -d worker`.
+2. Place an order: it returns 201 at once. The worker logs a settings error six times, and the message moves to the DLQ.
+3. Put the right password in `.env`, then `docker compose up -d worker`.
+4. Move the message back: the email arrives, once.
+
+`ConsumerTests` prove a message that failed six times gets six new tries after the move, counted from zero, and is
+delivered once the cause is fixed, with the shovel gone afterwards; and that a message cut off by stopping goes back
+uncounted. `OrderConfirmationHandlerTests` cover a temporary failure that succeeds on the next try, one that fails every
+try and goes back to RabbitMQ, a refused recipient going straight to the DLQ, and a wrong password going back without
+more tries. `EmailFailuresTests` and `SmtpEmailSenderTests` check the sorting, including real refusals from an SMTP
+server.
 
 ## Verify
 

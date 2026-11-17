@@ -1,4 +1,8 @@
+using System.Net.Sockets;
 using System.Text;
+using MailKit.Net.Smtp;
+using MailKit.Security;
+using MimeKit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Shop.Messaging.Consuming;
@@ -55,18 +59,59 @@ public sealed class OrderConfirmationHandlerTests(NotificationsFixture fixture) 
     }
 
     [Fact]
-    public async Task AFailedSendRecordsNothingSoTheNextDeliverySends()
+    public async Task ATemporaryFailureIsTriedAgainInTheWorkerWithoutUsingADelivery()
     {
         var message = NotificationsFixture.Message(NotificationsFixture.Order());
-        fixture.Sender.FailNextSend = true;
+        fixture.Sender.FailNext(new SocketException((int)SocketError.ConnectionRefused));
 
-        // The consumer turns the exception into a reject with requeue, which RabbitMQ counts and delivers again
-        await Assert.ThrowsAsync<IOException>(() => HandleAsync(message));
+        Assert.Equal(MessageOutcome.Done, await HandleAsync(message));
+
+        Assert.Equal(2, fixture.Sender.Attempts);
+        Assert.Single(fixture.Sender.Sent);
+        Assert.Single(await ProcessedAsync());
+    }
+
+    [Fact]
+    public async Task WhenEveryTryFailsTheMessageGoesBackToRabbitMqAndNothingIsRecorded()
+    {
+        var message = NotificationsFixture.Message(NotificationsFixture.Order());
+        fixture.Sender.FailNext(new IOException("Timed out"), new IOException("Timed out"), new IOException("Timed out"));
+
+        // Retry: the consumer rejects with requeue, which RabbitMQ counts and delivers again
+        Assert.Equal(MessageOutcome.Retry, await HandleAsync(message));
+        Assert.Equal(3, fixture.Sender.Attempts);
         Assert.Empty(await ProcessedAsync());
 
+        // The next delivery, once the server is back
         Assert.Equal(MessageOutcome.Done, await HandleAsync(message));
         Assert.Single(fixture.Sender.Sent);
         Assert.Single(await ProcessedAsync());
+    }
+
+    [Fact]
+    public async Task ARefusedRecipientGoesStraightToTheDlqAfterOneTry()
+    {
+        var message = NotificationsFixture.Message(NotificationsFixture.Order());
+        fixture.Sender.FailNext(new SmtpCommandException(
+            SmtpErrorCode.RecipientNotAccepted, SmtpStatusCode.MailboxUnavailable, MailboxAddress.Parse("ada@shop.test"), "No such user"));
+
+        Assert.Equal(MessageOutcome.Reject, await HandleAsync(message));
+
+        Assert.Equal(1, fixture.Sender.Attempts);
+        Assert.Empty(await ProcessedAsync());
+    }
+
+    [Fact]
+    public async Task AWrongPasswordGoesBackAtOnceWithoutTryingAgainInTheWorker()
+    {
+        var message = NotificationsFixture.Message(NotificationsFixture.Order());
+        fixture.Sender.FailNext(new AuthenticationException("535 5.7.8 Username and Password not accepted"));
+
+        // Counted by RabbitMQ, so after six deliveries it waits in the DLQ until the password is fixed
+        Assert.Equal(MessageOutcome.Retry, await HandleAsync(message));
+
+        Assert.Equal(1, fixture.Sender.Attempts);
+        Assert.Empty(await ProcessedAsync());
     }
 
     [Fact]

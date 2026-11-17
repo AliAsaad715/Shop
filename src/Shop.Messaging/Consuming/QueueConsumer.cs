@@ -13,17 +13,22 @@ namespace Shop.Messaging.Consuming;
 /// A message is acknowledged only after its handler finishes, so a crash at any point returns it to the queue.
 /// </summary>
 /// <remarks>
-/// Stopping is graceful: no new messages are taken, the current one finishes (up to <see cref="DrainTimeout"/>), and
+/// Stopping is graceful: no new messages are taken, the current one finishes (up to the drain timeout, 20 s), and
 /// messages that were prefetched but never started go back with <c>basic.nack</c>. Since RabbitMQ 4.3 a nack doesn't
 /// count as a failed delivery, so a restart never uses up a message's retries; a reject, used when a handler fails,
 /// does.
 /// </remarks>
+/// <param name="drainTimeout">How long stopping waits for the message in progress before telling its handler to give up.</param>
 internal sealed class QueueConsumer<THandler>(
-    string queue, ushort prefetch, RabbitMqConnection connection, IServiceScopeFactory scopes, ILogger<QueueConsumer<THandler>> logger)
+    string queue, ushort prefetch, TimeSpan drainTimeout, RabbitMqConnection connection, IServiceScopeFactory scopes,
+    ILogger<QueueConsumer<THandler>> logger)
     : BackgroundService
     where THandler : class, IMessageHandler
 {
-    internal static readonly TimeSpan DrainTimeout = TimeSpan.FromSeconds(20);
+    internal static readonly TimeSpan DefaultDrainTimeout = TimeSpan.FromSeconds(20);
+
+    // After the handler is told to give up, the time it gets to hand its message back before the channel closes
+    internal static readonly TimeSpan GiveUpGrace = TimeSpan.FromSeconds(5);
     internal static readonly TimeSpan FirstRetryDelay = TimeSpan.FromSeconds(1);
     internal static readonly TimeSpan MaxRetryDelay = TimeSpan.FromSeconds(30);
 
@@ -94,13 +99,22 @@ internal sealed class QueueConsumer<THandler>(
         {
             try
             {
-                await _drained.Task.WaitAsync(DrainTimeout, cancellationToken);
+                await _drained.Task.WaitAsync(drainTimeout, cancellationToken);
             }
             catch (Exception error) when (error is TimeoutException or OperationCanceledException)
             {
-                // The handler is told to give up; its message isn't acknowledged, so RabbitMQ delivers it again
-                logger.LogWarning("The message being handled from {Queue} didn't finish in time; stopping anyway", queue);
+                // The handler is told to give up, and its message goes back with a nack: stopping is no fault of the
+                // message, so it keeps all its tries
+                logger.LogWarning("The message being handled from {Queue} didn't finish in time; handing it back", queue);
                 await _outOfTime.CancelAsync();
+                try
+                {
+                    await _drained.Task.WaitAsync(GiveUpGrace, CancellationToken.None);
+                }
+                catch (TimeoutException)
+                {
+                    // Closing the channel returns it anyway, counted as a failed delivery
+                }
             }
         }
 
@@ -194,8 +208,12 @@ internal sealed class QueueConsumer<THandler>(
                     // Reject, not nack: only a reject counts toward the queue's delivery limit
                     await channel.BasicRejectAsync(delivery.DeliveryTag, requeue: true);
                     break;
-                default:
+                case MessageOutcome.Reject:
                     await channel.BasicRejectAsync(delivery.DeliveryTag, requeue: false);
+                    break;
+                default:
+                    // Cut off by stopping: back to the queue uncounted, like a prefetched message
+                    await channel.BasicNackAsync(delivery.DeliveryTag, multiple: false, requeue: true);
                     break;
             }
         }
@@ -206,14 +224,17 @@ internal sealed class QueueConsumer<THandler>(
         }
     }
 
-    private async Task<MessageOutcome> HandleAsync(BasicDeliverEventArgs delivery)
+    // Null when stopping ran out of time and the handler gave up
+    private async Task<MessageOutcome?> HandleAsync(BasicDeliverEventArgs delivery)
     {
         var properties = delivery.BasicProperties;
+        // A first delivery has no failures behind it, whatever its headers say: a message moved back from the
+        // dead-letter queue still carries the x-delivery-count it had there, while RabbitMQ counts afresh
         var message = new ReceivedMessage(
             Guid.TryParse(properties.MessageId, out var id) ? id : null,
             delivery.RoutingKey,
             delivery.Body.ToArray(),
-            FailedDeliveries(properties));
+            delivery.Redelivered ? FailedDeliveries(properties) : 0);
 
         try
         {
@@ -225,6 +246,11 @@ internal sealed class QueueConsumer<THandler>(
             }
 
             return outcome;
+        }
+        catch (OperationCanceledException) when (_outOfTime.IsCancellationRequested)
+        {
+            logger.LogWarning("Stopping cut off message {MessageId} from {Queue}; it goes back without using a try", message.MessageId, queue);
+            return null;
         }
         catch (Exception error)
         {

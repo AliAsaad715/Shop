@@ -176,6 +176,55 @@ public sealed class ConsumerTests(RabbitMqFixture fixture) : IAsyncLifetime
         await RabbitMqFixture.WaitUntilAsync(() => _script.Received.Any(received => received.MessageId == message.MessageId), "the consumer to get it");
     }
 
+    [Fact]
+    public async Task MovingTheDlqBackGivesTheMessageAllItsTriesAgain()
+    {
+        // A wrong SMTP password: every try fails, and the sixth puts the message in the dead-letter queue
+        _script.Outcome = _ => MessageOutcome.Retry;
+        var message = await PublishAsync();
+        await WaitForDeadLettersAsync(1);
+        Assert.Equal(6, _script.Received.Count);
+
+        // Moved back before the password is fixed: six more tries, counted from zero, then the DLQ again
+        await fixture.MoveDeadLettersBackAsync();
+        await RabbitMqFixture.WaitUntilAsync(() => _script.Received.Count == 12, "six more tries");
+        await WaitForDeadLettersAsync(1);
+        Assert.Equal([0, 1, 2, 3, 4, 5], _script.Received.Skip(6).Select(received => received.FailedDeliveries));
+        Assert.All(_script.Received, received => Assert.Equal(message.MessageId, received.MessageId));
+
+        // The password is fixed, then the README's move-back command runs once more: one try, and it's sent
+        _script.Outcome = _ => MessageOutcome.Done;
+        await fixture.MoveDeadLettersBackAsync();
+        await RabbitMqFixture.WaitUntilAsync(() => _script.Received.Count == 13, "the message to come back");
+        await WaitForDeadLettersAsync(0);
+        await RabbitMqFixture.WaitUntilAsync(
+            async () => (await fixture.GetJsonAsync("parameters/shovel/%2F")).GetArrayLength() == 0, "the shovel to delete itself");
+        await _host.StopAsync();
+        Assert.Equal(0u, await fixture.CountAsync(ShopTopology.EmailQueue));
+    }
+
+    [Fact]
+    public async Task AMessageCutOffByStoppingGoesBackWithoutUsingATry()
+    {
+        // A worker whose stop waits only half a second, and a handler that never finishes on its own
+        await _host.StopAsync();
+        _host.Dispose();
+        _host = await fixture.StartConnectedHostAsync(_clientName, services => services
+            .AddSingleton(_script)
+            .AddQueueConsumer<ScriptedHandler>(ShopTopology.EmailQueue, Prefetch, drainTimeout: TimeSpan.FromMilliseconds(500)));
+        await WaitForConsumersAsync(1);
+        _script.Hold();
+        var message = await PublishAsync();
+        await RabbitMqFixture.WaitUntilAsync(() => _script.Received.Count == 1, "the handler to start");
+
+        await _host.StopAsync();
+
+        var returned = await RabbitMqFixture.GetSoonAsync(fixture.Probe, ShopTopology.EmailQueue, autoAck: true);
+        Assert.Equal(message.MessageId.ToString(), returned.BasicProperties.MessageId);
+        Assert.True(returned.Redelivered);
+        Assert.Equal(0, FailedDeliveries(returned));
+    }
+
     private async Task<OutgoingMessage> PublishAsync()
     {
         var message = new OutgoingMessage(Guid.CreateVersion7(), ShopTopology.RoutingKeys.OrderPlaced, Encoding.UTF8.GetBytes("{}"), DateTimeOffset.UtcNow);
@@ -183,6 +232,9 @@ public sealed class ConsumerTests(RabbitMqFixture fixture) : IAsyncLifetime
         Assert.True(result.Confirmed, result.Failure);
         return message;
     }
+
+    private Task WaitForDeadLettersAsync(uint count) => RabbitMqFixture.WaitUntilAsync(
+        async () => await fixture.CountAsync(ShopTopology.EmailDeadLetterQueue) == count, $"{count} message(s) in the DLQ");
 
     private Task WaitForConsumersAsync(uint consumers) => RabbitMqFixture.WaitUntilAsync(
         async () => (await fixture.Probe.QueueDeclarePassiveAsync(ShopTopology.EmailQueue)).ConsumerCount == consumers,

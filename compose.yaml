@@ -119,6 +119,9 @@ services:
       - "127.0.0.1:${RABBITMQ_UI_PORT:-15672}:15672"
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
+      # The image's plugins plus shovel (task R4-05), which moves dead-lettered messages back: the management UI's
+      # "Move messages" on a queue's page, or the command in the README
+      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
     healthcheck:
       # Healthy once the AMQP listener accepts connections, not merely once the node is up
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
