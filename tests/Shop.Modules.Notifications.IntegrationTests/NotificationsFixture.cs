@@ -42,7 +42,13 @@ public sealed class NotificationsFixture : IAsyncLifetime
 
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:Shop"] = connectionString })
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:Shop"] = connectionString,
+                ["Email:From"] = "Shop <orders@shop.local>",
+                // The worker's 3 tries, without its 1-second waits
+                ["Email:RetryDelay"] = "00:00:00.010",
+            })
             .Build());
         services.AddLogging();
         services.AddSingleton<IEmailSender>(Sender);
@@ -87,25 +93,38 @@ public sealed class NotificationsFixture : IAsyncLifetime
         0);
 }
 
-// Stands in for the mail provider: keeps every email, and can fail the next send as a mail server that is down would
+// Stands in for the mail provider: keeps every email, counts every try, and can fail the next tries with given errors,
+// as a mail server that is down or refuses something would
 internal sealed class RecordingEmailSender : IEmailSender
 {
+    private readonly ConcurrentQueue<Exception> _failures = new();
+    private int _attempts;
+
     public ConcurrentQueue<EmailMessage> Sent { get; } = new();
 
-    public bool FailNextSend { get; set; }
+    public int Attempts => _attempts;
+
+    public void FailNext(params Exception[] errors)
+    {
+        foreach (var error in errors)
+        {
+            _failures.Enqueue(error);
+        }
+    }
 
     public void Reset()
     {
         Sent.Clear();
-        FailNextSend = false;
+        _failures.Clear();
+        _attempts = 0;
     }
 
     public Task SendAsync(EmailMessage email, CancellationToken cancellationToken)
     {
-        if (FailNextSend)
+        Interlocked.Increment(ref _attempts);
+        if (_failures.TryDequeue(out var failure))
         {
-            FailNextSend = false;
-            throw new IOException("The mail server didn't answer.");
+            throw failure;
         }
 
         Sent.Enqueue(email);

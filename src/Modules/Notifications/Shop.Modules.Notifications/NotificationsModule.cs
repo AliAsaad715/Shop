@@ -44,6 +44,7 @@ public static class NotificationsModule
                 "Email__Provider must be Mailpit (with Email__Mailpit__Host and Port) or Smtp (with Email__Smtp__Host, Port, " +
                 "UserName and Password).")
             .Validate(EmailOptions.HasValidTimeout, "Email:Timeout must be more than 0 and at most 60 seconds.")
+            .Validate(EmailOptions.HasValidRetries, "Email:SendAttempts must be 1 to 5, and Email:RetryDelay 0 to 10 seconds.")
             .ValidateOnStart();
         services.TryAddSingleton<IEmailSender, SmtpEmailSender>();
         services.AddQueueConsumer<OrderConfirmationHandler>(ShopTopology.EmailQueue, prefetch: 5);

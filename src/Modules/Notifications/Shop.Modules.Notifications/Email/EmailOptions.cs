@@ -24,6 +24,15 @@ internal sealed class EmailOptions
     /// </summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(15);
 
+    /// <summary>
+    /// Tries per delivery for a temporary failure, such as the mail server being briefly down. Only when all of them
+    /// fail does the message go back to RabbitMQ, which counts it toward the queue's limit of six deliveries.
+    /// </summary>
+    public int SendAttempts { get; init; } = 3;
+
+    /// <summary>The wait before the second try; it doubles before each later one (1 s, then 2 s by default).</summary>
+    public TimeSpan RetryDelay { get; init; } = TimeSpan.FromSeconds(1);
+
     public MailpitOptions Mailpit { get; init; } = new();
 
     public SmtpOptions Smtp { get; init; } = new();
@@ -40,6 +49,9 @@ internal sealed class EmailOptions
     };
 
     public static bool HasValidTimeout(EmailOptions options) => options.Timeout > TimeSpan.Zero && options.Timeout <= MaxTimeout;
+
+    public static bool HasValidRetries(EmailOptions options) =>
+        options.SendAttempts is >= 1 and <= 5 && options.RetryDelay >= TimeSpan.Zero && options.RetryDelay <= TimeSpan.FromSeconds(10);
 
     private static bool IsPort(int port) => port is > 0 and <= 65535;
 }
