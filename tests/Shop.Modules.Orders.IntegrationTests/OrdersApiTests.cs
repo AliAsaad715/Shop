@@ -16,6 +16,36 @@ namespace Shop.Modules.Orders.IntegrationTests;
 public sealed class OrdersApiTests(OrdersApiFixture fixture)
 {
     [Fact]
+    public async Task VersionsMatchAcrossCreateChangeDetailsAndList()
+    {
+        using var customer = fixture.Customer(OrdersApiFixture.CustomerA);
+        using var created = await customer.PostAsJsonAsync("/api/v1/orders", new
+        {
+            lines = new[] { new { productId = FakeProductCatalog.Book.Id, quantity = 1 } },
+        });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var placed = await ReadAsync(created);
+        var id = placed.GetProperty("id").GetGuid();
+        Assert.Equal(0, placed.GetProperty("version").GetInt32());
+
+        using var admin = fixture.AdminClient();
+        var version = 0;
+        foreach (var status in new[] { "Confirmed", "Shipped", "Delivered" })
+        {
+            version++;
+            using var changed = await admin.PatchAsJsonAsync($"/api/v1/orders/{id}/status", new { status });
+            Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+            Assert.Equal(version, (await ReadAsync(changed)).GetProperty("version").GetInt32());
+
+            using var details = await customer.GetAsync($"/api/v1/orders/{id}");
+            Assert.Equal(version, (await ReadAsync(details)).GetProperty("version").GetInt32());
+            using var list = await customer.GetAsync("/api/v1/orders?pageSize=50");
+            var row = (await ReadAsync(list)).GetProperty("items").EnumerateArray().Single(item => item.GetProperty("id").GetGuid() == id);
+            Assert.Equal(version, row.GetProperty("version").GetInt32());
+        }
+    }
+
+    [Fact]
     public async Task CustomerPlacesAnOrderPricedByTheCatalog()
     {
         using var client = fixture.Customer(OrdersApiFixture.CustomerA);

@@ -13,7 +13,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\Shop.SharedKernel\Shop.SharedKernel.csproj" />
     <ProjectReference Include="..\Shop.Modules.Notifications.Contracts\Shop.Modules.Notifications.Contracts.csproj" />
-    <!-- The email worker (task R4-03) consumes order.placed: OrderPlacedEvent and the queue consumer -->
+    <!-- Email confirmations and live updates consume the public order event contracts. -->
     <ProjectReference Include="..\..\..\Shop.Messaging\Shop.Messaging.csproj" />
     <ProjectReference Include="..\..\Orders\Shop.Modules.Orders.Contracts\Shop.Modules.Orders.Contracts.csproj" />
   </ItemGroup>

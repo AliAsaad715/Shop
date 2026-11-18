@@ -3,10 +3,9 @@ using Shop.Modules.Orders.Domain;
 
 namespace Shop.Modules.Orders.Reading;
 
-/// <param name="Version">Goes up with each status change; the version a live order event carries (task R4-08).</param>
 internal sealed record OrderResponse(
-    Guid Id, Guid CustomerId, OrderStatus Status, decimal Total, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt,
-    IReadOnlyList<OrderLineResponse> Lines, IReadOnlyList<OrderStatusChangeResponse> History, int Version)
+    Guid Id, Guid CustomerId, OrderStatus Status, decimal Total, int Version, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt,
+    IReadOnlyList<OrderLineResponse> Lines, IReadOnlyList<OrderStatusChangeResponse> History)
 {
     /// <summary>
     /// The one mapping from an order to its response. EF translates it into the query that reads an order, so only
@@ -14,14 +13,13 @@ internal sealed record OrderResponse(
     /// in memory, just placed or changed.
     /// </summary>
     public static readonly Expression<Func<Order, OrderResponse>> Projection = order => new OrderResponse(
-        order.Id, order.CustomerId, order.Status, order.Total, order.CreatedAt, order.UpdatedAt,
+        order.Id, order.CustomerId, order.Status, order.Total, order.Version, order.CreatedAt, order.UpdatedAt,
         order.Lines.OrderBy(line => line.Id)
             .Select(line => new OrderLineResponse(line.ProductId, line.ProductName, line.UnitPrice, line.Quantity, line.LineTotal))
             .ToList(),
         order.History.OrderBy(change => change.ChangedAt).ThenBy(change => change.Id)
             .Select(change => new OrderStatusChangeResponse(change.FromStatus, change.ToStatus, change.ChangedBy, change.ChangedAt))
-            .ToList(),
-        order.Version);
+            .ToList());
 
     private static readonly Func<Order, OrderResponse> FromOrder = Projection.Compile();
 

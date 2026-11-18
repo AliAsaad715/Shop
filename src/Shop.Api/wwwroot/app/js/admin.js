@@ -1,8 +1,9 @@
-// The admin dashboard (task R4-08): every order, new ones appearing as customers place them, and status changes as
-// they happen. Live updates come from /hubs/admin, which refuses anyone without the Admin role.
+// The admin dashboard (task R4-08): every order, with new ones appearing as customers place them (OrderPlaced from
+// /hubs/admin, which refuses anyone without the Admin role). Status changes go to customers, not admins (R4-07), so a
+// status shown here changes when this admin moves the order, and on every reload.
 import {
-  api, clearToken, claims, connectLive, describe, el, isNewer, isUsable, logEvent, money, OrderPlaced, OrderStatusChanged,
-  readToken, shortId, showConnection, signIn, statusPill, when,
+  api, clearToken, claims, connectLive, describe, el, isNewer, isUsable, logEvent, mergeSnapshot, money, OrderPlaced,
+  readToken, ResyncRequired, shortId, showConnection, signIn, statusPill, when,
 } from "./session.js";
 
 const nextStatuses = {
@@ -50,9 +51,16 @@ function render() {
 
 async function load() {
   const result = await api("/api/v1/orders?pageSize=50", { token });
-  orders.clear();
-  for (const order of result.items) orders.set(order.id, order);
+  mergeSnapshot(orders, result.items);
   render();
+}
+
+// Shows what went wrong in a live update or a reload, rather than leaving it in the console
+function report(work) {
+  work.catch(error => {
+    if (error.status === 401) return signOut("Your session has ended. Sign in again.");
+    page.notice.textContent = describe(error);
+  });
 }
 
 async function moveTo(order, status, button) {
@@ -72,15 +80,20 @@ async function moveTo(order, status, button) {
 }
 
 function onOrderPlaced(event) {
-  const known = orders.has(event.orderId);
-  logEvent(page.events, `${OrderPlaced} ${shortId(event.orderId)} ${money(event.total)}${known ? " (already shown)" : ""}`, known);
-  if (known) return;
+  // A row already loaded from the API, or the same event delivered twice, carries the same version and changes nothing
+  const shown = orders.get(event.orderId);
+  const newer = isNewer(event, shown);
+  logEvent(page.events, `${OrderPlaced} ${shortId(event.orderId)} ${money(event.total)} v${event.version}`
+    + (newer ? "" : " (ignored: already shown)"), !newer);
+  if (!newer) return;
+
   orders.set(event.orderId, {
+    ...shown,
     id: event.orderId,
     customerId: event.customerId,
     status: event.status,
     total: event.total,
-    itemCount: event.lines.reduce((sum, line) => sum + line.quantity, 0),
+    itemCount: event.itemCount,
     createdAt: event.placedAt,
     version: event.version,
   });
@@ -88,17 +101,10 @@ function onOrderPlaced(event) {
   render();
 }
 
-function onOrderStatusChanged(event) {
-  const shown = orders.get(event.orderId);
-  const newer = isNewer(event, shown);
-  logEvent(page.events, `${OrderStatusChanged} ${shortId(event.orderId)} ${event.fromStatus} → ${event.status} v${event.version}`
-    + (newer ? "" : " (ignored: not newer than what is shown)"), !newer);
-
-  // Not newer, or an order older than the 50 on screen
-  if (!newer || !shown) return;
-  orders.set(event.orderId, { ...shown, status: event.status, version: event.version });
-  freshIds.add(event.orderId);
-  render();
+// The server's live subscription (re)started, and events from before it are lost
+function onResync() {
+  logEvent(page.events, `${ResyncRequired}: reloading the list`);
+  report(load());
 }
 
 function onConnection(state, error) {
@@ -116,14 +122,15 @@ async function start() {
   page.signOut.hidden = false;
   page.who.textContent = claims(token).email;
   try {
-    await load();
+    // Connected first and loaded second, so an order placed in between arrives as an event and nothing is missed
     connection = await connectLive({
       hub: "/hubs/admin",
       token,
-      handlers: { [OrderPlaced]: onOrderPlaced, [OrderStatusChanged]: onOrderStatusChanged },
+      handlers: { [OrderPlaced]: onOrderPlaced, [ResyncRequired]: onResync },
       onState: onConnection,
       onReconnected: load,
     });
+    await load();
   } catch (error) {
     // ApiError carries status; SignalR's negotiation error carries statusCode
     if ([401, 403].includes(error.status ?? error.statusCode) || /\b40[13]\b/.test(error.message)) {

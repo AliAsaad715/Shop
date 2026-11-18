@@ -1,8 +1,8 @@
 // The customer's order page (task R4-08): their orders, and each status change as it happens. Live updates come from
 // /hubs/orders, which sends each customer only their own orders' events (Clients.User on the server).
 import {
-  api, clearToken, claims, connectLive, describe, el, isNewer, isUsable, logEvent, money, OrderStatusChanged, readToken,
-  register, shortId, showConnection, signIn, statusPill, when,
+  api, clearToken, claims, connectLive, describe, el, isNewer, isUsable, logEvent, mergeSnapshot, money, OrderStatusChanged,
+  readToken, register, ResyncRequired, shortId, showConnection, signIn, statusPill, when,
 } from "./session.js";
 
 const page = {
@@ -57,8 +57,7 @@ function render() {
 
 async function loadOrders() {
   const result = await api("/api/v1/orders?pageSize=50", { token });
-  orders.clear();
-  for (const order of result.items) orders.set(order.id, order);
+  mergeSnapshot(orders, result.items);
   render();
   if (selectedId) await showDetails(selectedId);
 }
@@ -72,9 +71,16 @@ async function loadProducts() {
 async function showDetails(orderId) {
   selectedId = orderId;
   const order = await api(`/api/v1/orders/${orderId}`, { token });
+
+  // The detail answer can be newer than the list row, and the list is what live events compare against; or older, when
+  // a read replica is a moment behind an event already shown, and then the row's status stays
+  const row = orders.get(order.id);
+  if (row && order.version > row.version) orders.set(order.id, { ...row, status: order.status, version: order.version });
+  const status = row && row.version > order.version ? row.status : order.status;
+
   page.details.hidden = false;
   page.detailsTitle.textContent = `Order ${shortId(order.id)}`;
-  page.detailsStatus.replaceChildren("Status: ", statusPill(order.status), ` (placed ${when(order.createdAt)}, total ${money(order.total)})`);
+  page.detailsStatus.replaceChildren("Status: ", statusPill(status), ` (placed ${when(order.createdAt)}, total ${money(order.total)})`);
   page.detailsLines.replaceChildren(...order.lines.map(line => el("tr", {},
     el("td", {}, line.productName),
     el("td", { class: "amount" }, money(line.unitPrice)),
@@ -82,10 +88,6 @@ async function showDetails(orderId) {
     el("td", { class: "amount" }, money(line.lineTotal)))));
   page.detailsHistory.replaceChildren(...order.history.map(change =>
     el("li", {}, `${when(change.changedAt)}  ${change.fromStatus ? `${change.fromStatus} → ` : "Placed as "}${change.toStatus}`)));
-
-  // The detail answer can be newer than the list row, and the list is what live events compare against
-  const row = orders.get(order.id);
-  if (row && order.version > row.version) orders.set(order.id, { ...row, status: order.status, version: order.version });
   render();
 }
 
@@ -99,6 +101,12 @@ function report(work) {
 
 function onOrderStatusChanged(event) {
   report(applyStatusChange(event));
+}
+
+// The server's live subscription (re)started, and events from before it are lost
+function onResync() {
+  logEvent(page.events, `${ResyncRequired}: reloading your orders`);
+  report(loadOrders());
 }
 
 async function applyStatusChange(event) {
@@ -135,14 +143,15 @@ async function start() {
   page.signOut.hidden = false;
   page.who.textContent = claims(token).email;
   try {
-    await Promise.all([loadOrders(), loadProducts()]);
+    // Connected first and loaded second, so a status change in between arrives as an event and nothing is missed
     connection = await connectLive({
       hub: "/hubs/orders",
       token,
-      handlers: { [OrderStatusChanged]: onOrderStatusChanged },
+      handlers: { [OrderStatusChanged]: onOrderStatusChanged, [ResyncRequired]: onResync },
       onState: onConnection,
       onReconnected: loadOrders,
     });
+    await Promise.all([loadOrders(), loadProducts()]);
   } catch (error) {
     if ((error.status ?? error.statusCode) === 401) return signOut("Your session has ended. Sign in again.");
     page.notice.textContent = `Can't load your orders: ${describe(error)}`;

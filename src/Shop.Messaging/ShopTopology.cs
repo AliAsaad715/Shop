@@ -12,6 +12,9 @@ namespace Shop.Messaging;
 /// </remarks>
 public static class ShopTopology
 {
+    /// <summary>The broker's built-in exchange: a mandatory publish with a queue name must reach that exact queue.</summary>
+    public const string DefaultExchange = "";
+
     /// <summary>Every domain event, routed by its type, such as <c>order.placed</c>.</summary>
     public const string EventsExchange = "shop.events";
 
@@ -46,11 +49,26 @@ public static class ShopTopology
     }
 
     /// <summary>
-    /// Whether an event type must reach at least one queue. <c>order.placed</c> must reach the email queue, so
-    /// RabbitMQ returns it when no queue takes it and its sender tries again. Status changes only feed live pages, so
-    /// one that no queue takes is dropped: nobody is watching, and a page reloads the order when it connects.
+    /// Whether an event needs a separately confirmed copy in the durable email queue. A confirmation from a live
+    /// queue cannot satisfy this requirement. The copy on <see cref="EventsExchange"/> is optional when no page watches.
     /// </summary>
-    internal static bool RequiresQueue(string routingKey) => routingKey == RoutingKeys.OrderPlaced;
+    internal static bool RequiresEmail(string routingKey) => routingKey == RoutingKeys.OrderPlaced;
+
+    /// <summary>
+    /// Creates a temporary live-update queue on its consumer's channel. Call only in an API instance: every
+    /// instance needs its own copy of each event. The server-generated name is replaced during automatic recovery.
+    /// </summary>
+    public static async Task<string> DeclareLiveQueueAsync(IChannel channel, CancellationToken cancellationToken)
+    {
+        await channel.ExchangeDeclareAsync(
+            EventsExchange, ExchangeType.Topic, durable: true, autoDelete: false, cancellationToken: cancellationToken);
+        var queue = await channel.QueueDeclareAsync(
+            queue: string.Empty, durable: false, exclusive: true, autoDelete: true,
+            arguments: new Dictionary<string, object?> { ["x-queue-type"] = "classic" },
+            cancellationToken: cancellationToken);
+        await channel.QueueBindAsync(queue.QueueName, EventsExchange, RoutingKeys.AllOrderEvents, cancellationToken: cancellationToken);
+        return queue.QueueName;
+    }
 
     internal static async Task DeclareAsync(IConnection connection, CancellationToken cancellationToken)
     {
@@ -72,7 +90,9 @@ public static class ShopTopology
             EmailQueue, durable: true, exclusive: false, autoDelete: false,
             arguments: EmailQueueArguments(),
             cancellationToken: cancellationToken);
-        await channel.QueueBindAsync(EmailQueue, EventsExchange, RoutingKeys.OrderPlaced, cancellationToken: cancellationToken);
+        // Upgrade an existing broker without deleting its queue or waiting emails. The publisher now sends the email
+        // copy directly; retaining this old binding would enqueue a second copy from the live-event publish.
+        await channel.QueueUnbindAsync(EmailQueue, EventsExchange, RoutingKeys.OrderPlaced, cancellationToken: cancellationToken);
     }
 
     internal static Dictionary<string, object?> EmailQueueArguments() => new()

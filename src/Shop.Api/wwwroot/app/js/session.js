@@ -3,9 +3,12 @@
 
 const tokenKey = "shop.accessToken";
 
-// The event names the hubs call; Shop.Modules.Notifications.Realtime.OrderUpdates on the server
-export const OrderPlaced = "orderPlaced";
-export const OrderStatusChanged = "orderStatusChanged";
+// The methods the hubs call (R4-07); Shop.Modules.Notifications.Contracts.Realtime.RealtimeEvents on the server.
+// OrderPlaced goes to admins, OrderStatusChanged to the order's own customer, and ResyncRequired to everyone when the
+// server's live subscription (re)starts, as events from before it are lost
+export const OrderPlaced = "OrderPlaced";
+export const OrderStatusChanged = "OrderStatusChanged";
+export const ResyncRequired = "ResyncRequired";
 
 // sessionStorage keeps the token for this tab only, so an admin tab and a customer tab can sit side by side
 export function readToken() {
@@ -88,9 +91,10 @@ export function describe(error) {
 }
 
 /**
- * Connects to a hub with the token and keeps the page told about the connection. SignalR reconnects by itself after
- * a drop (immediately, then after 2, 10 and 30 seconds); events sent while it was away are lost, so onReconnected
- * reloads what the page shows. The server closes the connection when the token expires.
+ * Connects to a hub with the token and keeps the page told about the connection. The handlers are registered before
+ * it starts, so the page loads its list only once connected and misses nothing in between. SignalR reconnects by itself
+ * after a drop (immediately, then after 2, 10 and 30 seconds); events sent while it was away are lost, so
+ * onReconnected reloads what the page shows. The server closes the connection when the token expires.
  */
 export async function connectLive({ hub, token, handlers, onState, onReconnected }) {
   const connection = new signalR.HubConnectionBuilder()
@@ -112,10 +116,22 @@ export async function connectLive({ hub, token, handlers, onState, onReconnected
   return connection;
 }
 
-// A live event changes what the page shows only if it is newer: events can arrive out of order, and an admin's own
-// change is already on screen from the API's answer when its event arrives
+// A live event changes what the page shows only if it is newer: events can arrive out of order or twice, and an
+// admin's own change is already on screen from the API's answer
 export function isNewer(event, shown) {
   return shown === undefined || event.version > shown.version;
+}
+
+/**
+ * Puts a fresh list from the API into what the page shows without going back in time. A live event that arrived while
+ * the list was loading, or a read replica a moment behind, can make a row on screen newer than the list's, and that
+ * row stays. Orders are never deleted, so a row the list lacks (one placed after it was read) stays too.
+ */
+export function mergeSnapshot(shown, items) {
+  for (const item of items) {
+    const current = shown.get(item.id);
+    if (current === undefined || item.version >= current.version) shown.set(item.id, { ...current, ...item });
+  }
 }
 
 export function el(tag, attributes = {}, ...children) {

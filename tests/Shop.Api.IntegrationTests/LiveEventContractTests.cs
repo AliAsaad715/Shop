@@ -2,28 +2,29 @@ using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
+using Shop.Modules.Notifications.Contracts.Realtime;
 using Shop.Modules.Notifications.Realtime;
-using Shop.Modules.Orders.Contracts;
 using Shop.SharedKernel.Auth;
 using Xunit;
 
 namespace Shop.Api.IntegrationTests;
 
 /// <summary>
-/// The contract between the hubs and the live pages (task R4-08): the pages listen for the event names the server
-/// sends, and each event arrives as camelCase JSON with the fields the pages read. R4-07 sends exactly these.
+/// The contract between the hubs and the live pages (task R4-08): the pages listen for the method names R4-07 sends
+/// (<see cref="RealtimeEvents"/>), and each notification arrives as camelCase JSON with the fields the pages read.
 /// </summary>
 public sealed class LiveEventContractTests(SignalRApi api) : IClassFixture<SignalRApi>
 {
     private static readonly DateTimeOffset PlacedAt = new(2026, 11, 18, 10, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void ThePagesListenForTheEventNamesTheHubsSend()
+    public void ThePagesListenForTheMethodNamesTheHubsSend()
     {
         var script = File.ReadAllText(RepositoryFile("src/Shop.Api/wwwroot/app/js/session.js"));
 
-        Assert.Contains($"export const OrderPlaced = \"{OrderUpdates.OrderPlaced}\";", script);
-        Assert.Contains($"export const OrderStatusChanged = \"{OrderUpdates.OrderStatusChanged}\";", script);
+        Assert.Contains($"export const OrderPlaced = \"{RealtimeEvents.OrderPlaced}\";", script);
+        Assert.Contains($"export const OrderStatusChanged = \"{RealtimeEvents.OrderStatusChanged}\";", script);
+        Assert.Contains($"export const ResyncRequired = \"{RealtimeEvents.ResyncRequired}\";", script);
     }
 
     [Fact]
@@ -31,13 +32,12 @@ public sealed class LiveEventContractTests(SignalRApi api) : IClassFixture<Signa
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         await using var admin = api.Connection("/hubs/admin", api.Token(Guid.NewGuid(), Roles.Admin));
-        var received = Receive(admin, OrderUpdates.OrderPlaced);
+        var received = Receive(admin, RealtimeEvents.OrderPlaced);
         await api.StartAsync(admin, timeout.Token);
-        var order = new OrderPlacedEvent(Guid.CreateVersion7(), Guid.CreateVersion7(), "ada@shop.test", "Pending", 59.97m,
-            [new OrderPlacedLine(Guid.CreateVersion7(), "Cotton T-Shirt", 19.99m, 3, 59.97m)], 0, PlacedAt);
+        var order = new OrderPlacedNotification(Guid.CreateVersion7(), Guid.CreateVersion7(), 0, Guid.CreateVersion7(), "Pending", 59.97m, 3, PlacedAt);
 
         await api.Services.GetRequiredService<IHubContext<AdminHub>>().Clients.Group(AdminHub.GroupName)
-            .SendAsync(OrderUpdates.OrderPlaced, order, timeout.Token);
+            .SendAsync(RealtimeEvents.OrderPlaced, order, timeout.Token);
 
         // What admin.js reads from it
         var json = await received.WaitAsync(timeout.Token);
@@ -45,7 +45,7 @@ public sealed class LiveEventContractTests(SignalRApi api) : IClassFixture<Signa
         Assert.Equal(order.CustomerId, json.GetProperty("customerId").GetGuid());
         Assert.Equal("Pending", json.GetProperty("status").GetString());
         Assert.Equal(59.97m, json.GetProperty("total").GetDecimal());
-        Assert.Equal(3, json.GetProperty("lines")[0].GetProperty("quantity").GetInt32());
+        Assert.Equal(3, json.GetProperty("itemCount").GetInt32());
         Assert.Equal(PlacedAt, json.GetProperty("placedAt").GetDateTimeOffset());
         Assert.Equal(0, json.GetProperty("version").GetInt32());
     }
@@ -56,14 +56,14 @@ public sealed class LiveEventContractTests(SignalRApi api) : IClassFixture<Signa
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var customer = Guid.NewGuid();
         await using var page = api.Connection("/hubs/orders", api.Token(customer));
-        var received = Receive(page, OrderUpdates.OrderStatusChanged);
+        var received = Receive(page, RealtimeEvents.OrderStatusChanged);
         await api.StartAsync(page, timeout.Token);
-        var change = new OrderStatusChangedEvent(Guid.CreateVersion7(), customer, "Pending", "Confirmed", 1, Guid.NewGuid(), PlacedAt.AddMinutes(5));
+        var change = new OrderStatusChangedNotification(Guid.CreateVersion7(), Guid.CreateVersion7(), 1, "Pending", "Confirmed", PlacedAt.AddMinutes(5));
 
         await api.Services.GetRequiredService<IHubContext<OrdersHub>>().Clients.User(customer.ToString())
-            .SendAsync(OrderUpdates.OrderStatusChanged, change, timeout.Token);
+            .SendAsync(RealtimeEvents.OrderStatusChanged, change, timeout.Token);
 
-        // What orders.js and admin.js read from it
+        // What orders.js reads from it
         var json = await received.WaitAsync(timeout.Token);
         Assert.Equal(change.OrderId, json.GetProperty("orderId").GetGuid());
         Assert.Equal("Pending", json.GetProperty("fromStatus").GetString());

@@ -572,22 +572,32 @@ container, so the app signs in with its own user, created when the `rabbitmq-dat
   confirmed message is stored; a nack, a timeout (`RabbitMq:ConfirmTimeout`, 5 s) or a broker that can't be reached
   fails that message, and nothing throws, so the outbox relay (R4-02) can retry exactly the failed rows. A batch is
   sent in list order and confirmed together.
-- `order.placed` is mandatory: it must reach the email queue, so one that no queue takes fails too. A status change
-  that no queue takes is confirmed and dropped, since only live pages (R4-07) want it and they reload an order when
-  they connect; retrying it would only hold up the relay.
+- `order.placed` has two physical publishes with the same message ID: a mandatory copy through the built-in default
+  exchange (`""`) addressed to `email.order-confirmation`, and a live copy through `shop.events`. The mandatory copy
+  must reach that exact email queue: a live queue cannot mask its absence. Both publishes are confirmed before the
+  logical event succeeds. A missing email queue leaves the event retryable in the outbox while live updates can still
+  arrive. A status change with no watchers is confirmed and dropped; pages reload current state when they connect.
 
 | Name | Kind | Arguments and binding |
 | --- | --- | --- |
 | `shop.events` | Topic exchange, durable | Every domain event, routed by its type |
-| `email.order-confirmation` | Quorum queue | Bound to `order.placed`; `x-delivery-limit` 5, dead-letters to `shop.dlx` with at-least-once delivery and `x-overflow: reject-publish` |
+| `""` (built-in default exchange) | Direct exchange | Routes the mandatory email copy by its exact queue name |
+| `email.order-confirmation` | Quorum queue | Addressed directly through the default exchange; `x-delivery-limit` 5, dead-letters to `shop.dlx` with at-least-once delivery and `x-overflow: reject-publish` |
 | `shop.dlx` | Direct exchange, durable | Receives messages a queue gave up on |
 | `email.order-confirmation.dlq` | Quorum queue | Bound to `shop.dlx` with key `email.order-confirmation` |
+
+The logical message type remains `order.placed` in AMQP's `Type` property; its physical email routing key is now the
+queue name. The consumer reads `Type`, falling back to the routing key for older untyped messages. At startup the
+topology removes the legacy `shop.events` -> email binding without deleting the queue or its waiting messages, so
+the live publish cannot enqueue a second email copy. Deploy the API and worker from the updated build together;
+older API publishers that send only through `shop.events` must be stopped before the new topology is installed.
+No queue deletion, database migration or volume reset is needed for this routing change.
 
 A message is dead-lettered on its sixth failed delivery: a limit of 5 allows the first try plus five retries. Since
 RabbitMQ 4.3 only two things count as a failed delivery: `basic.reject` with requeue, and a consumer losing its
 connection with the message unacknowledged. `basic.nack` with requeue doesn't count, so a consumer that nacks a broken
-email retries it forever; the email worker must reject (R4-05). The per-instance live-update queues arrive with their
-consumer in R4-07.
+email retries it forever; the email worker must reject (R4-05). The R4-07 consumer creates a separate temporary
+live-update queue inside each API instance; the email worker never creates one.
 
 Queue arguments can't change once a queue exists. After changing one in `ShopTopology`, delete that queue in the
 management UI (its messages go with it) and restart the app; otherwise RabbitMQ refuses the declaration with
@@ -604,8 +614,10 @@ docker compose start rabbitmq             # the API reconnects on its own within
 `tests/Shop.Messaging.IntegrationTests` start the same image with Testcontainers and check, through the management
 API, the topology's types and arguments; that a second host declaring it changes nothing; that the client reconnects
 and declares it again after the broker drops the connection; that confirmed messages are persistent and keep their
-order; that an `order.placed` no queue takes fails while the rest of its batch is confirmed, and a status change no
-queue takes is confirmed; that rejected and over-limit messages reach the DLQ, and nacked ones never do; that a host
+order; that an `order.placed` with no email queue fails even with a live queue bound, while the rest of its batch is
+confirmed; that repairing the email destination lets the same ID succeed; that upgrading removes the old binding
+without losing waiting emails or duplicating them; that a status change no queue takes is confirmed; that rejected
+and over-limit messages reach the DLQ, and nacked ones never do; that a host
 without a broker starts at once and reports Degraded; and that invalid settings stop it.
 
 ## Transactional outbox (task R4-02)
@@ -642,6 +654,12 @@ and new status, the new version and who changed it; live pages ignore a version 
 Delivery is at least once. If the app stops after RabbitMQ confirmed a batch but before the commit, those rows go out
 again after the restart; consumers drop repeats by message ID (R4-03). `Orders:Outbox` sets `PollInterval` (1 s),
 `BatchSize` (50) and `Retention` (7 days).
+
+An order placement succeeds only after its separately addressed email copy and its live-event publish are confirmed.
+A partial success may resend a copy on the next pass; the message ID remains the outbox row ID. The real broker/database
+test in `OutboxDeliveryTests` proves a saved order stays unpublished after email queue loss or broker downtime, then
+publishes its confirmation after recovery. It also proves a live copy can arrive while its missing email destination
+keeps the outbox row pending.
 
 ```sql
 -- What is waiting, and why
@@ -694,7 +712,7 @@ Proxies must also omit or redact `access_token`. These choices follow Microsoft'
 [SignalR authentication](https://learn.microsoft.com/en-us/aspnet/core/signalr/authn-and-authz?view=aspnetcore-10.0)
 and [token logging guidance](https://learn.microsoft.com/en-us/aspnet/core/signalr/security?view=aspnetcore-10.0#access-token-logging).
 
-R4-06 provides the secured channels. RabbitMQ event consumption and the browser pages arrive in R4-07 and R4-08.
+R4-06 provides the secured channels. R4-07 supplies RabbitMQ event consumption below; R4-08 supplies the browser pages.
 The security tests use real JWT validation and WebSocket connections through TestServer, without PostgreSQL or RabbitMQ:
 
 ```sh
@@ -705,6 +723,67 @@ They cover query and header authentication, invalid tokens and claims, customer 
 path boundaries, delivery to all of customer A's connections without leaking to customer B, admin group membership
 after reconnecting, and open connections closing at token expiry followed by delivery with a fresh token.
 
+## Live order updates (task R4-07)
+
+`AddNotificationsModule` starts `LiveUpdateConsumer` inside each API process. It shares that host's RabbitMQ
+connection and owns one channel and one server-named classic queue: non-durable, exclusive, auto-delete, bound to
+`shop.events` with `order.*`. Every API instance receives its own copy of every event and sends to its local SignalR
+connections, so these pushes need no backplane. Orders publishes contracts through its outbox and has no SignalR dependency.
+
+The public browser contracts are in `Shop.Modules.Notifications.Contracts.Realtime`, serialized as camelCase JSON:
+
+| SignalR method | Destination | Arguments |
+| --- | --- | --- |
+| `OrderPlaced` | `/hubs/admin`, server-assigned `admins` group | One object: `messageId`, `orderId`, `version`, `customerId`, `status`, `total`, `itemCount`, `placedAt` |
+| `OrderStatusChanged` | `/hubs/orders`, `Clients.User(customerId)` using the validated JWT `sub` | One object: `messageId`, `orderId`, `version`, `fromStatus`, `status`, `changedAt` |
+| `ResyncRequired` | All local connections on both hubs | No arguments; reload current state through REST |
+
+`itemCount` is the sum of quantities, not the number of lines. Payloads use the broker event without database reads;
+email addresses, line details and the admin's ID are not forwarded. An admin row begins at version 0. REST create,
+status-change, detail and list responses now also include `version`, using the existing order version column.
+
+The consumer uses manual acknowledgements, prefetch 5 and sequential dispatch. It acknowledges after SignalR accepts
+the send; this is not a browser receipt. Successfully sent message IDs are remembered locally for ten minutes, up to
+10,000 IDs. A shared `processed_messages` table would suppress the other API instances' copies, so live updates never
+use the email worker's inbox. Duplicate delivery outside that window remains possible.
+
+A send has three attempts, each bounded to five seconds, with one and two seconds between attempts. Exhausting those
+attempts replaces the temporary subscription and requests a fresh snapshot once it is ready. Invalid messages are
+rejected without requeue; unknown `order.*` types are acknowledged and ignored. The temporary live queue has no DLQ.
+Persistent confirmation emails continue to use their own durable queue and DLQ.
+
+Starting without RabbitMQ never blocks the API. Initial connection failures retry with 1-to-30-second backoff.
+The RabbitMQ client automatically restores the channel, queue, binding and consumer after a connection failure;
+server-generated queue names can change. A deleted queue or a channel lost on its own is replaced by the service.
+The `realtime` health check reports Degraded until the consumer is registered, including during recovery. Logs include
+queue names and rejected message IDs, never message bodies. Shutdown cancels consumption, drains the current handler
+for at most twenty seconds (or the host's remaining budget), then disposes only this consumer's channel.
+
+Rules for pages that use these events:
+
+- Load initial REST state, and merge snapshots and live updates by order ID and version; ignore an older or equal
+  version. Register handlers before starting SignalR, and handle events that arrive while a snapshot is loading.
+- Reload after both SignalR reconnect and `ResyncRequired`. The consumer emits the latter whenever its subscription
+  becomes ready, including recovery while browser WebSockets remained connected. Temporary queues do not replay gaps.
+- When read routing is enabled, resynchronization needs a current primary snapshot. A stale replica response must
+  never replace a higher version already displayed. R4-07 tests pin `ReadRouting:Enabled=false` to isolate delivery.
+
+R4-08's live pages (below) follow these rules, except that a reload doesn't ask for the primary database: see their
+note on read routing.
+
+No pages or page-specific CSP are added here. R4-09 retains the combined outbox/email failure scenarios and R4-10 the
+interview proof kit. R4-07's focused tests publish through the real RabbitMQ publisher and receive through real
+JWT-authenticated SignalR WebSockets, covering isolation, fan-out to two API instances, temporary topology,
+duplicates/invalid messages, connection and queue recovery, resynchronization, bounded send failures and shutdown.
+R4-06's security tests remain independent of a broker.
+
+```sh
+dotnet build Shop.slnx -m:1 -nr:false
+dotnet test tests/Shop.Api.IntegrationTests --no-build -m:1 -nr:false --filter FullyQualifiedName~RealtimeDeliveryTests
+dotnet test tests/Shop.Modules.Notifications.IntegrationTests --no-build -m:1 -nr:false --filter FullyQualifiedName~LiveUpdateHandlerTests
+dotnet test Shop.slnx --no-build -m:1 -nr:false
+```
+
 ## Live pages (task R4-08)
 
 Two plain pages, served by the API itself from [`src/Shop.Api/wwwroot/app`](src/Shop.Api/wwwroot/app):
@@ -712,22 +791,25 @@ Two plain pages, served by the API itself from [`src/Shop.Api/wwwroot/app`](src/
 | Page | For | Shows |
 | --- | --- | --- |
 | `/app/orders.html` (or `/app`) | Customers | Their orders, each order's lines and history, and each status change as it happens; a form to place an order, and to create an account |
-| `/app/admin.html` | Admins | Every order, newest first: new ones appear as customers place them, status changes as they happen, and buttons move an order to its next status |
+| `/app/admin.html` | Admins | Every order, newest first: new ones appear as customers place them, and buttons move an order to its next status |
 
 How a page works:
 
 1. It loads without a token, as it holds no data, and you sign in on the page. The token stays in that browser tab
    only (`sessionStorage`), so an admin tab and two customer tabs can sit side by side.
-2. It loads the current orders from the API, then connects to its hub (`/hubs/orders` or `/hubs/admin`) with the
-   SignalR JavaScript client. The token goes in the query string, because browsers can't add a header to a
-   WebSocket; the API accepts it there only under `/hubs` (R4-06).
-3. Events arrive as `orderPlaced` (admins only) and `orderStatusChanged` (admins, and the order's own customer), each
-   the event from the Orders contracts as JSON. A page applies an event only when its `version` is newer than what it
-   shows, so an event that arrives late or twice changes nothing; the page's event log marks it "ignored". The
-   order API's responses now include `version` for this.
-4. If the connection drops, SignalR reconnects by itself (at once, then after 2, 10 and 30 seconds), and the page
-   reloads its orders, since events sent meanwhile are lost. The pill in the header says Live, Reconnecting or
-   Offline. When the token expires, the server closes the connection and the page asks you to sign in again.
+2. It connects to its hub (`/hubs/orders` or `/hubs/admin`) with the SignalR JavaScript client, and only then loads
+   the current orders from the API, so nothing that happens in between is missed. The token goes in the query
+   string, because browsers can't add a header to a WebSocket; the API accepts it there only under `/hubs` (R4-06).
+3. It listens for R4-07's methods (table above): the dashboard for `OrderPlaced`, a customer's page for
+   `OrderStatusChanged`, and both for `ResyncRequired`. An event changes what a page shows only when its `version` is
+   newer than what is shown, so one that arrives late or twice changes nothing; the page's event log marks it ignored.
+   Status changes go to the order's customer only, so the dashboard shows one when this admin makes it, and after a
+   reload.
+4. If the connection drops, SignalR reconnects by itself (at once, then after 2, 10 and 30 seconds) and the page
+   reloads its orders, since events sent meanwhile are lost; it reloads on `ResyncRequired` too. A reload merges into
+   what is shown by version, so a list read before an event arrived never takes a row back to an older state. The
+   pill in the header says Live, Reconnecting or Offline. When the token expires, the server closes the connection and
+   the page asks you to sign in again.
 5. A customer token is refused by `/hubs/admin`, and the dashboard says the page is for admins.
 
 Everything under `/app` gets its own CSP: `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self';
@@ -742,13 +824,14 @@ IDs are version 7 GUIDs, whose first characters are a timestamp shared by everyt
 `dotnet run --project src/Shop.Api` (or the Docker image) serves the pages; running `Shop.Api.dll` from `bin/` doesn't,
 because a build leaves `wwwroot` in the project folder.
 
-The pages connect and show their state now; the live events start flowing with R4-07, which sends them. Until then
-an admin's own change shows on the dashboard from the API's answer.
+With read routing on (R3-11), a reload can read a replica a moment behind. A page still never goes back to an older
+state, but a change that is still replicating shows only at the next event or reload; read routing is off by default.
 
 `LivePagesTests` (conformance, through the real Program) check that every file loads without a token under that CSP,
 that `/app` opens the customer's page, that the pages have no inline scripts, styles or handlers, and that their
-scripts never write HTML or evaluate code. `LiveEventContractTests` check that the pages listen for the names the
-hubs send and that each event arrives with the fields the pages read; `OrdersApiTests` check the version.
+scripts never write HTML or evaluate code. `LiveEventContractTests` check that the pages listen for R4-07's method
+names (`RealtimeEvents`) and that each notification arrives with the fields the pages read; `OrdersApiTests` check the
+version.
 
 ## Email worker (task R4-03)
 
@@ -792,6 +875,12 @@ straight there, a handler that throws, the prefetch limit, a graceful stop that 
 returns the prefetched one uncounted, and recovery after a dropped connection or a deleted queue.
 `OrderConfirmationHandlerTests` (Postgres container) cover one email per message even when delivered twice, nothing
 recorded when sending fails, rejected messages, and the email's content.
+`OrderConfirmationDeliveryTests` use the real worker registration, RabbitMQ and Postgres with a recording email sender:
+three confirmations wait while the worker is stopped and are sent on restart; two more survive a broker application
+stop/start (`rabbitmqctl stop_app` / `start_app`, keeping the endpoint fixed) while the worker is stopped, then are sent
+and recorded with their original IDs and `order.placed` type. SMTP provider
+delivery remains part of R4-04. A future DLQ redrive must publish the original body, message ID and type directly to
+`email.order-confirmation` through the default exchange, with mandatory routing and publisher confirms.
 
 ## Sending email (task R4-04)
 

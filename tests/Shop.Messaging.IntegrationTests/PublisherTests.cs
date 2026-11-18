@@ -40,6 +40,8 @@ public sealed class PublisherTests(RabbitMqFixture fixture) : IAsyncLifetime
         Assert.Equal(PublishResult.Success(message.MessageId), Assert.Single(results));
         var stored = await RabbitMqFixture.GetSoonAsync(fixture.Probe, ShopTopology.EmailQueue, autoAck: true);
         Assert.Equal(message.MessageId.ToString(), stored.BasicProperties.MessageId);
+        Assert.Equal(ShopTopology.DefaultExchange, stored.Exchange);
+        Assert.Equal(ShopTopology.EmailQueue, stored.RoutingKey);
         Assert.Equal("order.placed", stored.BasicProperties.Type);
         Assert.Equal("application/json", stored.BasicProperties.ContentType);
         Assert.Equal(DeliveryModes.Persistent, stored.BasicProperties.DeliveryMode);
@@ -69,9 +71,9 @@ public sealed class PublisherTests(RabbitMqFixture fixture) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task OrderPlacedThatReachesNoQueueFailsWhileTheRestOfTheBatchIsConfirmed()
+    public async Task MissingEmailQueueFailsItsOrderWhileTheRestOfTheBatchIsConfirmed()
     {
-        // As if someone deleted the email queue: order.placed must reach a queue, and now none takes it. The next
+        // As if someone deleted the email queue: order.placed must reach this exact queue. The next
         // test's host declares the queue again when it connects
         await fixture.Probe.QueueDeleteAsync(ShopTopology.EmailQueue, ifUnused: false, ifEmpty: false);
         var placed = RabbitMqFixture.Event(ShopTopology.RoutingKeys.OrderPlaced);
@@ -80,11 +82,36 @@ public sealed class PublisherTests(RabbitMqFixture fixture) : IAsyncLifetime
         var results = await _publisher.PublishAsync([placed, changed], default);
 
         Assert.False(results[0].Confirmed);
-        Assert.Contains("No queue is bound for 'order.placed'", results[0].Failure);
+        Assert.Contains($"No queue is bound for '{ShopTopology.EmailQueue}'", results[0].Failure);
         Assert.True(results[1].Confirmed, results[1].Failure);
 
         // The channel survives a return, so the next batch goes through
         Assert.True((await _publisher.PublishAsync([RabbitMqFixture.Event(ShopTopology.RoutingKeys.OrderStatusChanged)], default))[0].Confirmed);
+    }
+
+    [Fact]
+    public async Task LiveQueueCannotConfirmAnOrderWhenTheEmailQueueIsMissing()
+    {
+        var connection = await _host.Services.GetRequiredService<RabbitMqConnection>().GetAsync(default);
+        await using var liveChannel = await connection.CreateChannelAsync();
+        var liveQueue = await ShopTopology.DeclareLiveQueueAsync(liveChannel, default);
+        await fixture.Probe.QueueDeleteAsync(ShopTopology.EmailQueue, ifUnused: false, ifEmpty: false);
+        var message = RabbitMqFixture.Event(ShopTopology.RoutingKeys.OrderPlaced);
+
+        var result = Assert.Single(await _publisher.PublishAsync([message], default));
+
+        Assert.False(result.Confirmed);
+        Assert.False(await fixture.ExistsAsync(ShopTopology.EmailQueue));
+        var live = await RabbitMqFixture.GetSoonAsync(liveChannel, liveQueue, autoAck: true);
+        Assert.Equal(message.MessageId.ToString(), live.BasicProperties.MessageId);
+
+        // A new host repairs the topology. Retry the same logical event, as the outbox does.
+        using var repaired = await fixture.StartConnectedHostAsync();
+        Assert.True(Assert.Single(await _publisher.PublishAsync([message], default)).Confirmed);
+        var email = await RabbitMqFixture.GetSoonAsync(fixture.Probe, ShopTopology.EmailQueue, autoAck: true);
+        Assert.Equal(message.MessageId.ToString(), email.BasicProperties.MessageId);
+        Assert.Equal(0u, await fixture.CountAsync(ShopTopology.EmailQueue));
+        await repaired.StopAsync();
     }
 
     [Fact]
