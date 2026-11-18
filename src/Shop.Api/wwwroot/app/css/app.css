@@ -1,0 +1,150 @@
+/* The two live pages (task R4-08). Plain CSS from 'self': their CSP allows no inline styles */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #1c2430;
+  --muted: #5c6878;
+  --line: #d9dee5;
+  --accent: #2d5bd7;
+  --accent-text: #ffffff;
+  --ok: #1f7a4d;
+  --warn: #9a6400;
+  --bad: #b3261e;
+  --flash: #fff4c2;
+  color-scheme: light;
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12161c;
+    --surface: #1b2129;
+    --text: #e6eaf0;
+    --muted: #9aa5b4;
+    --line: #2e3742;
+    --accent: #7c9cff;
+    --accent-text: #0d1220;
+    --ok: #6fd3a0;
+    --warn: #f0bf62;
+    --bad: #ff8a80;
+    --flash: #3a3417;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; background: var(--bg); color: var(--text); }
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 14px max(16px, env(safe-area-inset-left, 0px));
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.bar h1 { margin: 0; font-size: 1.25rem; margin-right: auto; }
+
+.who { color: var(--muted); }
+
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 20px; }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; min-width: 0; }
+
+.panel h2 { margin: 0 0 12px; font-size: 1.05rem; }
+
+.panel h2:not(:first-child) { margin-top: 18px; }
+
+.stack { display: grid; gap: 20px; min-width: 0; }
+
+.columns { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 20px; align-items: start; }
+
+@media (max-width: 800px) { .columns { grid-template-columns: minmax(0, 1fr); } }
+
+form { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+
+label { display: grid; gap: 4px; font-size: 0.9rem; color: var(--muted); }
+
+input, select {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  min-width: 0;
+}
+
+button {
+  font: inherit;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+button.secondary { background: transparent; color: var(--accent); }
+
+button:disabled { opacity: 0.55; cursor: progress; }
+
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.scroll { overflow-x: auto; }
+
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+
+th, td { text-align: left; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+
+th { font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+
+td.amount, th.amount { text-align: right; }
+
+tbody tr[data-selectable] { cursor: pointer; }
+
+tbody tr[aria-selected="true"] { background: var(--bg); }
+
+.actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.actions button { padding: 3px 9px; font-size: 0.85rem; }
+
+.pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 1px 10px;
+  font-size: 0.85rem;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.pill[data-state="live"], .pill[data-status="Delivered"], .pill[data-status="Confirmed"] { color: var(--ok); }
+.pill[data-state="reconnecting"], .pill[data-status="Pending"], .pill[data-status="Shipped"] { color: var(--warn); }
+.pill[data-state="offline"], .pill[data-status="Cancelled"] { color: var(--bad); }
+
+.fresh { animation: flash 2.5s ease-out; }
+
+@keyframes flash { from { background: var(--flash); } to { background: transparent; } }
+
+@media (prefers-reduced-motion: reduce) { .fresh { animation: none; } }
+
+.notice { margin: 0; color: var(--muted); }
+
+.error { margin: 8px 0 0; color: var(--bad); }
+
+.error:empty, .notice:empty { display: none; }
+
+.events { margin: 0; padding: 0; list-style: none; font-family: ui-monospace, Consolas, monospace; font-size: 0.85rem; }
+
+.events li { padding: 4px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+
+.events li.ignored { color: var(--muted); }
+
+.empty { color: var(--muted); }
+
+[hidden] { display: none !important; }

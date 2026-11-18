@@ -39,7 +39,7 @@ public sealed class OrderConfirmationHandlerTests(NotificationsFixture fixture) 
         var email = Assert.Single(fixture.Sender.Sent);
         Assert.Equal("ada@shop.test", email.To);
         Assert.Equal(message.MessageId, email.Id);
-        Assert.Equal($"We received your order {order.OrderId.ToString()[..8]}", email.Subject);
+        Assert.Equal($"We received your order {order.OrderId.ToString()[^8..]}", email.Subject);
         var recorded = Assert.Single(await ProcessedAsync());
         Assert.Equal(message.MessageId, recorded.MessageId);
         Assert.Equal("order.placed", recorded.Type);

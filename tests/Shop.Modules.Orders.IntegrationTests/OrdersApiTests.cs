@@ -343,6 +343,29 @@ public sealed class OrdersApiTests(OrdersApiFixture fixture)
     }
 
     [Fact]
+    public async Task ResponsesCarryTheVersionThatLivePagesCompareEventsWith()
+    {
+        var orderId = await fixture.PlaceOrderAsync(OrdersApiFixture.CustomerA);
+        using var customer = fixture.Customer(OrdersApiFixture.CustomerA);
+        using var admin = fixture.AdminClient();
+
+        using (var placed = await customer.GetAsync($"/api/v1/orders/{orderId}"))
+        {
+            Assert.Equal(0, (await ReadAsync(placed)).GetProperty("version").GetInt32());
+        }
+
+        // Each status change raises it by one: the version its order.status-changed event carries
+        using (var confirmed = await admin.PatchAsJsonAsync($"/api/v1/orders/{orderId}/status", new { status = "Confirmed" }))
+        {
+            Assert.Equal(1, (await ReadAsync(confirmed)).GetProperty("version").GetInt32());
+        }
+
+        using var list = await customer.GetAsync("/api/v1/orders?pageSize=50");
+        var row = (await ReadAsync(list)).GetProperty("items").EnumerateArray().Single(item => item.GetProperty("id").GetGuid() == orderId);
+        Assert.Equal(1, row.GetProperty("version").GetInt32());
+    }
+
+    [Fact]
     public async Task ConcurrentEditLosesWith409()
     {
         var orderId = await fixture.PlaceOrderAsync(OrdersApiFixture.CustomerA);

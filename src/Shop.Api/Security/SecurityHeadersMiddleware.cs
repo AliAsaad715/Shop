@@ -8,6 +8,11 @@ internal sealed class SecurityHeadersMiddleware(RequestDelegate next)
         + "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; "
         + "connect-src 'self'; worker-src 'self' blob:; base-uri 'self'; frame-ancestors 'none'; form-action 'none'";
 
+    // The live pages (task R4-08): scripts, styles, images and connections from this site only, and nothing inline.
+    // connect-src 'self' also covers the SignalR WebSocket to the same host and port
+    internal const string LivePagesPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; "
+        + "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
+
     public Task InvokeAsync(HttpContext context)
     {
         // HSTS runs first. Preserve its value when the exception handler clears a failed response.
@@ -32,6 +37,10 @@ internal sealed class SecurityHeadersMiddleware(RequestDelegate next)
             else if (context.Request.Path.StartsWithSegments("/docs"))
             {
                 headers.ContentSecurityPolicy = DocsPolicy;
+            }
+            else if (context.Request.Path.StartsWithSegments("/app"))
+            {
+                headers.ContentSecurityPolicy = LivePagesPolicy;
             }
 
             // An authenticated response isn't stored, unless its endpoint chose how it's cached: product details are the

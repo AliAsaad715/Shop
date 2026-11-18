@@ -108,6 +108,8 @@ public sealed class OrderConfirmationDeliveryTests(NotificationsFixture fixture)
             ["RabbitMq:Port"] = _broker.GetMappedPublicPort(5672).ToString(),
             ["RabbitMq:UserName"] = "shop",
             ["RabbitMq:Password"] = "shop",
+            // The worker refuses to start without a sender address (R4-04); the emails go to the recording sender
+            ["Email:From"] = "Shop <orders@shop.local>",
         });
         builder.Services.AddLogging();
         builder.Services.AddShopMessaging($"confirmation-test-{Guid.NewGuid():N}");
