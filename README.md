@@ -754,10 +754,13 @@ Persistent confirmation emails continue to use their own durable queue and DLQ.
 
 Starting without RabbitMQ never blocks the API. Initial connection failures retry with 1-to-30-second backoff.
 The RabbitMQ client automatically restores the channel, queue, binding and consumer after a connection failure;
-server-generated queue names can change. A deleted queue or a channel lost on its own is replaced by the service.
-The `realtime` health check reports Degraded until the consumer is registered, including during recovery. Logs include
-queue names and rejected message IDs, never message bodies. Shutdown cancels consumption, drains the current handler
-for at most twenty seconds (or the host's remaining budget), then disposes only this consumer's channel.
+server-generated queue names can change. A deleted queue or a channel lost on its own is replaced by the service,
+but only while the connection is open: after a connection failure the client restores the old queue too, and a new
+subscription beside it would leave that queue without a consumer, keeping a copy of every order event until the API
+stopped. The `realtime` health check reports Degraded until the consumer is registered, including during recovery.
+Logs include queue names and rejected message IDs, never message bodies. Shutdown cancels consumption, drains the
+current handler for at most twenty seconds (or the host's remaining budget), then disposes only this consumer's
+channel.
 
 Rules for pages that use these events:
 
@@ -774,7 +777,8 @@ note on read routing.
 No pages or page-specific CSP are added here. R4-09 retains the combined outbox/email failure scenarios and R4-10 the
 interview proof kit. R4-07's focused tests publish through the real RabbitMQ publisher and receive through real
 JWT-authenticated SignalR WebSockets, covering isolation, fan-out to two API instances, temporary topology,
-duplicates/invalid messages, connection and queue recovery, resynchronization, bounded send failures and shutdown.
+duplicates/invalid messages, connection and queue recovery (never leaving a live queue without a consumer),
+resynchronization, bounded send failures and shutdown.
 R4-06's security tests remain independent of a broker.
 
 ```sh
