@@ -26,7 +26,8 @@ internal sealed class EmailOptions
 
     /// <summary>
     /// Tries per delivery for a temporary failure, such as the mail server being briefly down. Only when all of them
-    /// fail does the message go back to RabbitMQ, which counts it toward the queue's limit of six deliveries.
+    /// fail does the message go back to RabbitMQ, which allows five deliveries. With the default three tries,
+    /// that permits at most 15 failed SMTP attempts.
     /// </summary>
     public int SendAttempts { get; init; } = 3;
 

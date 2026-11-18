@@ -582,7 +582,7 @@ container, so the app signs in with its own user, created when the `rabbitmq-dat
 | --- | --- | --- |
 | `shop.events` | Topic exchange, durable | Every domain event, routed by its type |
 | `""` (built-in default exchange) | Direct exchange | Routes the mandatory email copy by its exact queue name |
-| `email.order-confirmation` | Quorum queue | Addressed directly through the default exchange; `x-delivery-limit` 5, dead-letters to `shop.dlx` with at-least-once delivery and `x-overflow: reject-publish` |
+| `email.order-confirmation` | Quorum queue | Addressed directly through the default exchange; `x-delivery-limit` 4 (five deliveries in total), dead-letters to `shop.dlx` with at-least-once delivery and `x-overflow: reject-publish` |
 | `shop.dlx` | Direct exchange, durable | Receives messages a queue gave up on |
 | `email.order-confirmation.dlq` | Quorum queue | Bound to `shop.dlx` with key `email.order-confirmation` |
 
@@ -593,15 +593,15 @@ the live publish cannot enqueue a second email copy. Deploy the API and worker f
 older API publishers that send only through `shop.events` must be stopped before the new topology is installed.
 No queue deletion, database migration or volume reset is needed for this routing change.
 
-A message is dead-lettered on its sixth failed delivery: a limit of 5 allows the first try plus five retries. Since
+A message is dead-lettered on its fifth failed delivery: a limit of 4 allows the first delivery plus four retries. Since
 RabbitMQ 4.3 only two things count as a failed delivery: `basic.reject` with requeue, and a consumer losing its
 connection with the message unacknowledged. `basic.nack` with requeue doesn't count, so a consumer that nacks a broken
 email retries it forever; the email worker must reject (R4-05). The R4-07 consumer creates a separate temporary
 live-update queue inside each API instance; the email worker never creates one.
 
-Queue arguments can't change once a queue exists. After changing one in `ShopTopology`, delete that queue in the
-management UI (its messages go with it) and restart the app; otherwise RabbitMQ refuses the declaration with
-PRECONDITION_FAILED and the app stays Degraded.
+Queue arguments can't change once a queue exists: a different `x-delivery-limit` fails with PRECONDITION_FAILED.
+For the R4-09 change from 5 to 4, follow [the safe queue upgrade](#upgrading-the-email-queue-to-five-deliveries-r4-09)
+before starting the updated API and worker against an existing broker.
 
 ```sh
 docker compose up -d --wait rabbitmq
@@ -852,7 +852,7 @@ For each message from `email.order-confirmation`:
    costs one duplicate email, never a lost one.
 3. A message that can never be sent (unreadable, no customer email, no message ID) is rejected without requeue and
    goes straight to the DLQ. Any other failure is rejected with requeue: RabbitMQ counts it, delivers it again, and
-   moves it to the DLQ on the sixth failure. Backoff between tries and sorting out permanent mail errors come in R4-05.
+   moves it to the DLQ on the fifth failure. R4-05 supplies backoff and classification of permanent mail errors.
 
 The consumer ([`QueueConsumer`](src/Shop.Messaging/Consuming/QueueConsumer.cs), in the messaging library) uses manual
 acks, handles one message at a time, and has a prefetch of 5, so a crash returns at most 5 messages to the queue and
@@ -936,9 +936,12 @@ by whether trying again can help:
 | Permanent | A malformed address, `550 No such user`, content refused (a `5xx` after the email) | `basic.reject` without requeue: straight to the DLQ, as trying again sends the same thing |
 | Our settings | A wrong password, a server without TLS, our sender address refused | Back to RabbitMQ at once, counted, without trying again in the worker: retrying can't fix it, and repeated failed sign-ins can get the account locked |
 
-The email queue allows six deliveries, so a message that keeps failing ends up in `email.order-confirmation.dlq`, and
+The email queue allows five deliveries, so a message that keeps failing ends up in `email.order-confirmation.dlq`, and
 the worker's log says why for every try. The waits have a little randomness, so workers that failed together don't
 retry in step. `Email:SendAttempts` (3) and `Email:RetryDelay` (1 s, doubling) tune the tries in the worker.
+These are separate budgets: five RabbitMQ deliveries times three temporary SMTP failures per delivery means at most
+15 failed SMTP attempts before the DLQ. A permanent refusal takes one SMTP attempt; a settings error takes one per
+delivery. A crash with an unacknowledged message also spends a delivery, without necessarily attempting SMTP.
 
 Stopping the worker never costs a message a try. A message that never started goes back with `basic.nack`, and so does
 one still sending when the 20-second graceful stop runs out. Since RabbitMQ 4.3 a nack isn't counted.
@@ -950,7 +953,7 @@ RabbitMQ container picks it up with `docker compose up -d rabbitmq`.
 
 1. **Look.** In the management UI (`http://localhost:15672`), open Queues and Streams, then
    `email.order-confirmation.dlq`, then Get messages. With Ack mode "Nack message requeue true" the messages stay in
-   the queue. The `x-first-death-reason` header is `rejected` (refused for good) or `delivery_limit` (six failed
+   the queue. The `x-first-death-reason` header is `rejected` (refused for good) or `delivery_limit` (five failed
    tries); the worker's log has the details.
 2. **Fix the cause**, such as the SMTP password in `.env`, followed by `docker compose up -d worker`.
 3. **Move them back**, either in the UI (on the DLQ's page, Move messages, destination queue
@@ -964,22 +967,98 @@ RabbitMQ container picks it up with `docker compose up -d rabbitmq`.
    ```
 
    The shovel moves the messages the DLQ holds when it starts, then deletes itself. A moved message keeps its message
-   ID, so one that was in fact emailed isn't emailed again, and RabbitMQ gives it six new tries. Moving messages back
+   ID, so one whose success was recorded isn't emailed again, and RabbitMQ gives it five new deliveries. Moving messages back
    before fixing the cause only sends them round again.
 
 The interview's mail failure, step by step:
 
 1. Set `EMAIL_PROVIDER=Smtp` and a wrong `SMTP_PASSWORD` in `.env`, then `docker compose up -d worker`.
-2. Place an order: it returns 201 at once. The worker logs a settings error six times, and the message moves to the DLQ.
+2. Place an order: it returns 201 at once. The worker logs a settings error five times, and the message moves to the DLQ.
 3. Put the right password in `.env`, then `docker compose up -d worker`.
 4. Move the message back: the email arrives, once.
 
-`ConsumerTests` prove a message that failed six times gets six new tries after the move, counted from zero, and is
+`ConsumerTests` prove a message that failed five times gets five new deliveries after the move, counted from zero, and is
 delivered once the cause is fixed, with the shovel gone afterwards; and that a message cut off by stopping goes back
 uncounted. `OrderConfirmationHandlerTests` cover a temporary failure that succeeds on the next try, one that fails every
 try and goes back to RabbitMQ, a refused recipient going straight to the DLQ, and a wrong password going back without
 more tries. `EmailFailuresTests` and `SmtpEmailSenderTests` check the sorting, including real refusals from an SMTP
 server.
+
+### Upgrading the email queue to five deliveries (R4-09)
+
+The queue created before R4-09 has `x-delivery-limit=5` (six total deliveries). The updated hosts declare
+`x-delivery-limit=4` (five total deliveries). Upgrade the development queue before starting the new hosts:
+
+1. Stop the **old API** with `docker compose stop api`, so no relay publishes new messages.
+2. Keep the **old worker** running until the email queue drains, then stop it with `docker compose stop worker`.
+3. In the RabbitMQ management UI, verify that `email.order-confirmation` has `messages_ready=0`,
+   `messages_unacknowledged=0` and `consumers=0`. If any is nonzero, stop the upgrade and handle those messages first.
+4. Delete only that empty queue, with broker-side checks against a concurrent delivery or consumer:
+
+   ```sh
+   docker compose exec rabbitmq rabbitmqctl delete_queue email.order-confirmation --if-empty --if-unused
+   ```
+
+5. Start the updated hosts together with `docker compose up -d --build api worker`. Check that the queue is quorum
+   with `x-delivery-limit=4`, its DLX is `shop.dlx`, and both hosts connect successfully.
+
+Keep `email.order-confirmation.dlq` and the RabbitMQ volume. This preserves dead letters and database outbox rows.
+This is an operator procedure for the existing development stack; integration tests use disposable containers.
+
+## Messaging and real-time integration coverage (task R4-09)
+
+Use Docker Desktop in Linux-container mode (or a Linux Docker Engine). The required service images match compose:
+
+```sh
+docker pull rabbitmq:4.3.7-management-alpine
+docker pull postgres:18
+```
+
+Testcontainers starts disposable brokers/databases on random ports and downloads its Ryuk cleanup image itself.
+Compose can remain stopped. The tests replace only external catalog, inventory and email boundaries; they never
+send to a real SMTP provider or require its credentials.
+
+| Behavior | Automated evidence |
+| --- | --- |
+| Order and outbox commit together; rollback leaves no event | Existing `OutboxTests` |
+| HTTP order reaches RabbitMQ and the admin through the real background relay | `R409EndToEndTests.AnHttpOrderIsSavedAndPublishedByTheBackgroundRelayToRabbitMqAndTheAdmin` |
+| HTTP returns 201 during an outage; the durable event publishes after recovery | `R409EndToEndTests.AnHttpOrderReturns201WhileRabbitMqIsDownAndItsOutboxPublishesAfterRecovery` |
+| Status change over HTTP reaches A without leaking to B, whose own update acts as a barrier | `R409EndToEndTests.HttpStatusChangesReachTheirOwnerWithoutLeakingToAnotherWorkingConnection` |
+| Stopped worker/broker retain waiting emails | Existing `OrderConfirmationDeliveryTests.StoppingTheWorkerAndRestartingTheBrokerKeepsEveryConfirmationEmail` |
+| Five failed deliveries, three SMTP attempts each, then DLQ | `OrderConfirmationDeliveryTests.FiveFailedDeliveriesMakeFifteenSmtpAttemptsAndDeadLetterTheMessage` |
+| Permanent recipient refusal goes straight to DLQ after one attempt | `OrderConfirmationDeliveryTests.APermanentRecipientRefusalDeadLettersAfterOneSmtpAttempt` |
+| Connection lost after inbox commit and before ACK redelivers, without another email | `OrderConfirmationDeliveryTests.AConnectionLostAfterRecordingButBeforeAckRedeliversWithoutSendingAgain` |
+| DLQ move-back preserves the ID/type/body and resets the failure budget | Existing `ConsumerTests.MovingTheDlqBackGivesTheMessageAllItsTriesAgain` |
+| Customer refused at admin negotiate and direct WebSocket handshake | Existing `SignalRSecurityTests.CustomerCannotOpenTheAdminChannel`, strengthened for the direct handshake |
+
+`R409ApiFixture` runs the actual `Shop.Api.Program` with production JWT validation, migrations, outbox relay,
+publisher and live consumer. Each test has one database for all module schemas; its temporary live queue and API
+host are disposed between cases. Existing smaller module and SignalR tests remain in place.
+
+During broker recovery the exclusive live queue can return after an event has been published. The outage test proves
+durability using the email queue and reads an HTTP snapshot; existing live-consumer tests cover `ResyncRequired`.
+These tests do not promise replay of every event to a disconnected live subscription.
+
+The crash test holds the real confirmation handler after it records success, then forcibly closes only the worker's
+AMQP connection. It cancels recovery before releasing that callback and starts a new worker. This tests inbox
+deduplication at that boundary. Delivery remains **at least once**: SMTP accepting an email before its inbox record
+commits can still produce a duplicate after a crash.
+
+Run the four suites from the repository root:
+
+```sh
+dotnet build Shop.slnx -m:1
+dotnet test tests/Shop.Messaging.IntegrationTests --no-build --logger "trx;LogFileName=messaging.trx" --results-directory artifacts/test-results/r4-09
+dotnet test tests/Shop.Modules.Orders.IntegrationTests --no-build --logger "trx;LogFileName=orders.trx" --results-directory artifacts/test-results/r4-09
+dotnet test tests/Shop.Modules.Notifications.IntegrationTests --no-build --logger "trx;LogFileName=notifications.trx" --results-directory artifacts/test-results/r4-09
+dotnet test tests/Shop.Api.IntegrationTests --no-build --logger "trx;LogFileName=api.trx" --results-directory artifacts/test-results/r4-09
+```
+
+Docker is required for this coverage; an unavailable engine is a failed/unperformed verification, not a reason to
+skip tests. New scenarios use bounded state waits and capture broker/database diagnostics on failure.
+The [.NET integration tests workflow](.github/workflows/dotnet-integration-tests.yml) builds the solution and runs all
+four suites on Ubuntu for pull requests, pushes to main and manual dispatch. It runs remaining suites after a failure
+and uploads TRX reports even if a suite fails.
 
 ## Verify
 

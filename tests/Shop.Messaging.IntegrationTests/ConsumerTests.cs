@@ -68,8 +68,8 @@ public sealed class ConsumerTests(RabbitMqFixture fixture) : IAsyncLifetime
 
         await RabbitMqFixture.WaitUntilAsync(async () => await fixture.CountAsync(ShopTopology.EmailDeadLetterQueue) == 1, "the DLQ");
 
-        // Each try counted, as basic.reject does: the first try plus five retries
-        Assert.Equal([0, 1, 2, 3, 4, 5], _script.Received.Select(received => received.FailedDeliveries));
+        // Each failure counted, as basic.reject does: the first delivery plus four retries.
+        Assert.Equal([0, 1, 2, 3, 4], _script.Received.Select(received => received.FailedDeliveries));
         var dead = await RabbitMqFixture.GetSoonAsync(fixture.Probe, ShopTopology.EmailDeadLetterQueue, autoAck: true);
         Assert.Equal(message.MessageId.ToString(), dead.BasicProperties.MessageId);
         Assert.Equal("delivery_limit", RabbitMqFixture.Header(dead.BasicProperties, "x-first-death-reason"));
@@ -179,28 +179,38 @@ public sealed class ConsumerTests(RabbitMqFixture fixture) : IAsyncLifetime
     [Fact]
     public async Task MovingTheDlqBackGivesTheMessageAllItsTriesAgain()
     {
-        // A wrong SMTP password: every try fails, and the sixth puts the message in the dead-letter queue
+        // A wrong SMTP password: every delivery fails, and the fifth puts it in the dead-letter queue.
         _script.Outcome = _ => MessageOutcome.Retry;
         var message = await PublishAsync();
         await WaitForDeadLettersAsync(1);
-        Assert.Equal(6, _script.Received.Count);
+        Assert.Equal(5, _script.Received.Count);
 
-        // Moved back before the password is fixed: six more tries, counted from zero, then the DLQ again
+        // Moved back before the password is fixed: five more deliveries, counted from zero, then the DLQ again.
         await fixture.MoveDeadLettersBackAsync();
-        await RabbitMqFixture.WaitUntilAsync(() => _script.Received.Count == 12, "six more tries");
+        await RabbitMqFixture.WaitUntilAsync(() => _script.Received.Count == 10, "five more deliveries");
         await WaitForDeadLettersAsync(1);
-        Assert.Equal([0, 1, 2, 3, 4, 5], _script.Received.Skip(6).Select(received => received.FailedDeliveries));
-        Assert.All(_script.Received, received => Assert.Equal(message.MessageId, received.MessageId));
+        Assert.Equal([0, 1, 2, 3, 4], _script.Received.Skip(5).Select(received => received.FailedDeliveries));
+        Assert.All(_script.Received, received =>
+        {
+            Assert.Equal(message.MessageId, received.MessageId);
+            Assert.Equal(message.RoutingKey, received.Type);
+            Assert.Equal(message.Body.ToArray(), received.Body.ToArray());
+        });
 
         // The password is fixed, then the README's move-back command runs once more: one try, and it's sent
         _script.Outcome = _ => MessageOutcome.Done;
         await fixture.MoveDeadLettersBackAsync();
-        await RabbitMqFixture.WaitUntilAsync(() => _script.Received.Count == 13, "the message to come back");
+        await RabbitMqFixture.WaitUntilAsync(() => _script.Received.Count == 11, "the message to come back");
         await WaitForDeadLettersAsync(0);
         await RabbitMqFixture.WaitUntilAsync(
             async () => (await fixture.GetJsonAsync("parameters/shovel/%2F")).GetArrayLength() == 0, "the shovel to delete itself");
         await _host.StopAsync();
         Assert.Equal(0u, await fixture.CountAsync(ShopTopology.EmailQueue));
+        var successful = _script.Received.Last();
+        Assert.Equal(message.MessageId, successful.MessageId);
+        Assert.Equal(message.RoutingKey, successful.Type);
+        Assert.Equal(message.Body.ToArray(), successful.Body.ToArray());
+        Assert.Equal(0, successful.FailedDeliveries);
     }
 
     [Fact]

@@ -56,10 +56,11 @@ public sealed class SignalRSecurityTests(SignalRApi api) : IClassFixture<SignalR
         using var response = await api.Client.PostAsync($"/hubs/admin/negotiate?access_token={token}", null);
         await AssertProblemAsync(response, HttpStatusCode.Forbidden, ErrorCodes.Common.Forbidden);
 
-        await using var connection = api.Connection("/hubs/admin", token);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        var error = await Assert.ThrowsAsync<HttpRequestException>(() => connection.StartAsync(timeout.Token));
-        Assert.Equal(HttpStatusCode.Forbidden, error.StatusCode);
+        // Bypass negotiate: assert authorization on the actual WebSocket handshake as well.
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            api.DirectWebSocketAsync("/hubs/admin", token, timeout.Token));
+        Assert.Equal("Incomplete handshake, status code: 403", error.Message);
     }
 
     [Theory]
