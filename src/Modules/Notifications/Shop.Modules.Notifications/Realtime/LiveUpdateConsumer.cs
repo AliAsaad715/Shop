@@ -150,7 +150,9 @@ internal sealed class LiveUpdateConsumer(
         {
             state.Disconnected();
             if (_stopping) drained.TrySetResult();
-            else lost.TrySetResult();
+            // A network failure unregisters the consumer too, and then the client restores it in place with its queue.
+            // Replacing it here as well left that restored queue without a consumer, keeping a copy of every event.
+            else if (current.IsOpen) lost.TrySetResult();
             return Task.CompletedTask;
         };
 

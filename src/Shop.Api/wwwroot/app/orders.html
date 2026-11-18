@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My orders</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/app.css">
+  <!-- Both from this site: the page's CSP allows scripts from 'self' only, never inline -->
+  <script src="lib/signalr/signalr.min.js" defer></script>
+  <script type="module" src="js/orders.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <h1>My orders</h1>
+    <span id="live" class="pill" data-state="offline">Offline</span>
+    <span id="who" class="who"></span>
+    <button id="sign-out" class="secondary" type="button" hidden>Sign out</button>
+  </header>
+
+  <main>
+    <section id="sign-in" class="panel" hidden>
+      <h2>Sign in, or create an account</h2>
+      <form id="sign-in-form">
+        <label>Email <input id="email" name="email" type="email" autocomplete="username" required></label>
+        <label>Password <input id="password" name="password" type="password" autocomplete="current-password" required></label>
+        <button type="submit">Sign in</button>
+        <button id="register" class="secondary" type="button">Create account</button>
+      </form>
+      <p id="sign-in-error" class="error" role="alert"></p>
+    </section>
+
+    <div id="account" class="stack" hidden>
+      <section class="panel">
+        <h2>Place an order</h2>
+        <form id="order-form">
+          <label>Product <select id="product" name="product" required></select></label>
+          <label>Quantity <input id="quantity" name="quantity" type="number" min="1" max="1000" value="1" required></label>
+          <button type="submit">Place order</button>
+        </form>
+        <p id="order-error" class="error" role="alert"></p>
+      </section>
+
+      <div class="columns">
+        <section class="panel">
+          <h2>Orders, newest first</h2>
+          <p id="notice" class="notice" role="status"></p>
+          <div class="scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Placed</th>
+                  <th>Order</th>
+                  <th class="amount">Items</th>
+                  <th class="amount">Total</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="orders"></tbody>
+            </table>
+          </div>
+          <p id="no-orders" class="empty" hidden>No orders yet.</p>
+        </section>
+
+        <section id="details" class="panel" hidden>
+          <h2 id="details-title">Order</h2>
+          <p id="details-status"></p>
+          <div class="scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th class="amount">Price</th>
+                  <th class="amount">Quantity</th>
+                  <th class="amount">Total</th>
+                </tr>
+              </thead>
+              <tbody id="details-lines"></tbody>
+            </table>
+          </div>
+          <h2>History</h2>
+          <ol id="details-history" class="events"></ol>
+        </section>
+      </div>
+
+      <section class="panel">
+        <h2>Live events</h2>
+        <p class="notice">Only this account's orders arrive here; another customer's never do.</p>
+        <ol id="events" class="events"></ol>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

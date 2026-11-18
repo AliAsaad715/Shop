@@ -1,4 +1,5 @@
 using Shop.Api.Docs;
+using Shop.Api.LivePages;
 using Shop.Api.Routing;
 using Shop.Api.Security;
 using Shop.Messaging;
@@ -48,6 +49,8 @@ if (app.Environment.IsDevelopment())
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
 app.UseStatusCodePages();
+// The live pages (task R4-08): static files at /app, with their own CSP, served without a token
+app.UseLivePages();
 app.UseRouting();
 app.UseFrontendCors();
 app.UseRateLimiter();
@@ -60,6 +63,7 @@ app.MapHealthChecks("/health").AllowAnonymous();
 app.MapApiDocs();
 app.MapProductImages();
 app.MapNotificationsEndpoints();
+app.MapLivePages();
 
 var api = app.MapVersionedApi();
 api.MapUsersEndpoints();

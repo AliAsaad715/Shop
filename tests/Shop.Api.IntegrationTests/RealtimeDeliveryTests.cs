@@ -171,6 +171,37 @@ public sealed class RealtimeDeliveryTests(RealtimeFixture fixture) : IAsyncLifet
         Assert.Equal(2, received.GetProperty("version").GetInt32());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RecoveryNeverLeavesALiveQueueWithoutAConsumer(bool replaceFirst)
+    {
+        // A queue left behind keeps a copy of every order event until the API stops, and nothing reads it. Three
+        // losses in a row: the connection drops, or failed sends make the service replace its subscription; then the
+        // connection drops twice more, and each time RabbitMQ must hold exactly one live queue for this API
+        var (api, clientName) = await ApiAsync();
+        await using var admin = api.Connection("/hubs/admin", api.Token(Guid.NewGuid(), Roles.Admin));
+        var inbox = new Inbox(admin);
+        using var timeout = Timeout(90);
+        await api.StartAsync(admin, timeout.Token);
+        await DeliveredAsync(api, inbox, timeout.Token);
+
+        for (var loss = 1; loss <= 3; loss++)
+        {
+            if (loss == 1 && replaceFirst)
+            {
+                api.Services.GetRequiredService<ScriptedAdminLifetimeManager>().Failures = 3;
+                await PublishAsync(api, Placed(Guid.NewGuid()));
+            }
+            else await fixture.CloseConnectionAsync(clientName);
+            await inbox.ResyncAsync(timeout.Token);
+            await ReadyAsync(api);
+            await DeliveredAsync(api, inbox, timeout.Token);
+
+            Assert.Equal([State(api).QueueName!], await LiveQueuesAsync());
+        }
+    }
+
     [Fact]
     public async Task ExhaustedSignalRSendsReplaceTheSubscriptionAndAllowTheSameMessageToSucceedLater()
     {
@@ -309,6 +340,23 @@ public sealed class RealtimeDeliveryTests(RealtimeFixture fixture) : IAsyncLifet
         return (await probe.QueueDeclarePassiveAsync(State(api).QueueName!)).ConsumerCount;
     }
     private static Task ReadyAsync(SignalRApi api) => RealtimeFixture.WaitAsync(() => State(api).IsReady, "live subscription to be ready");
+
+    // Publishes a new order and waits for the admin to get it, so everything sent before it has arrived too
+    private static async Task DeliveredAsync(SignalRApi api, Inbox inbox, CancellationToken ct)
+    {
+        var order = Placed(Guid.NewGuid());
+        await PublishAsync(api, order);
+        Assert.Equal(order.OrderId, (await inbox.DataAsync(RealtimeEvents.OrderPlaced, ct)).GetProperty("orderId").GetGuid());
+    }
+
+    // Every live queue in the collection's broker. Its tests run one at a time and dispose their APIs, so these all
+    // belong to the running test's APIs; the broker's queue list doesn't say which connection owns a queue
+    private async Task<string[]> LiveQueuesAsync() =>
+        [.. (await fixture.JsonAsync("queues/%2F")).EnumerateArray()
+            .Where(queue => queue.GetProperty("exclusive").GetBoolean())
+            .Select(queue => queue.GetProperty("name").GetString()!)
+            .Order()];
+
     private static async Task<HealthStatus> HealthAsync(SignalRApi api) =>
         (await api.Services.GetRequiredService<HealthCheckService>().CheckHealthAsync()).Status;
     private static CancellationTokenSource Timeout(int seconds = 30) => new(TimeSpan.FromSeconds(seconds));

@@ -754,12 +754,15 @@ Persistent confirmation emails continue to use their own durable queue and DLQ.
 
 Starting without RabbitMQ never blocks the API. Initial connection failures retry with 1-to-30-second backoff.
 The RabbitMQ client automatically restores the channel, queue, binding and consumer after a connection failure;
-server-generated queue names can change. A deleted queue or a channel lost on its own is replaced by the service.
-The `realtime` health check reports Degraded until the consumer is registered, including during recovery. Logs include
-queue names and rejected message IDs, never message bodies. Shutdown cancels consumption, drains the current handler
-for at most twenty seconds (or the host's remaining budget), then disposes only this consumer's channel.
+server-generated queue names can change. A deleted queue or a channel lost on its own is replaced by the service,
+but only while the connection is open: after a connection failure the client restores the old queue too, and a new
+subscription beside it would leave that queue without a consumer, keeping a copy of every order event until the API
+stopped. The `realtime` health check reports Degraded until the consumer is registered, including during recovery.
+Logs include queue names and rejected message IDs, never message bodies. Shutdown cancels consumption, drains the
+current handler for at most twenty seconds (or the host's remaining budget), then disposes only this consumer's
+channel.
 
-R4-08 must implement all of the following when adding the pages:
+Rules for pages that use these events:
 
 - Load initial REST state, and merge snapshots and live updates by order ID and version; ignore an older or equal
   version. Register handlers before starting SignalR, and handle events that arrive while a snapshot is loading.
@@ -768,10 +771,14 @@ R4-08 must implement all of the following when adding the pages:
 - When read routing is enabled, resynchronization needs a current primary snapshot. A stale replica response must
   never replace a higher version already displayed. R4-07 tests pin `ReadRouting:Enabled=false` to isolate delivery.
 
+R4-08's live pages (below) follow these rules, except that a reload doesn't ask for the primary database: see their
+note on read routing.
+
 No pages or page-specific CSP are added here. R4-09 retains the combined outbox/email failure scenarios and R4-10 the
 interview proof kit. R4-07's focused tests publish through the real RabbitMQ publisher and receive through real
 JWT-authenticated SignalR WebSockets, covering isolation, fan-out to two API instances, temporary topology,
-duplicates/invalid messages, connection and queue recovery, resynchronization, bounded send failures and shutdown.
+duplicates/invalid messages, connection and queue recovery (never leaving a live queue without a consumer),
+resynchronization, bounded send failures and shutdown.
 R4-06's security tests remain independent of a broker.
 
 ```sh
@@ -780,6 +787,55 @@ dotnet test tests/Shop.Api.IntegrationTests --no-build -m:1 -nr:false --filter F
 dotnet test tests/Shop.Modules.Notifications.IntegrationTests --no-build -m:1 -nr:false --filter FullyQualifiedName~LiveUpdateHandlerTests
 dotnet test Shop.slnx --no-build -m:1 -nr:false
 ```
+
+## Live pages (task R4-08)
+
+Two plain pages, served by the API itself from [`src/Shop.Api/wwwroot/app`](src/Shop.Api/wwwroot/app):
+
+| Page | For | Shows |
+| --- | --- | --- |
+| `/app/orders.html` (or `/app`) | Customers | Their orders, each order's lines and history, and each status change as it happens; a form to place an order, and to create an account |
+| `/app/admin.html` | Admins | Every order, newest first: new ones appear as customers place them, and buttons move an order to its next status |
+
+How a page works:
+
+1. It loads without a token, as it holds no data, and you sign in on the page. The token stays in that browser tab
+   only (`sessionStorage`), so an admin tab and two customer tabs can sit side by side.
+2. It connects to its hub (`/hubs/orders` or `/hubs/admin`) with the SignalR JavaScript client, and only then loads
+   the current orders from the API, so nothing that happens in between is missed. The token goes in the query
+   string, because browsers can't add a header to a WebSocket; the API accepts it there only under `/hubs` (R4-06).
+3. It listens for R4-07's methods (table above): the dashboard for `OrderPlaced`, a customer's page for
+   `OrderStatusChanged`, and both for `ResyncRequired`. An event changes what a page shows only when its `version` is
+   newer than what is shown, so one that arrives late or twice changes nothing; the page's event log marks it ignored.
+   Status changes go to the order's customer only, so the dashboard shows one when this admin makes it, and after a
+   reload.
+4. If the connection drops, SignalR reconnects by itself (at once, then after 2, 10 and 30 seconds) and the page
+   reloads its orders, since events sent meanwhile are lost; it reloads on `ResyncRequired` too. A reload merges into
+   what is shown by version, so a list read before an event arrived never takes a row back to an older state. The
+   pill in the header says Live, Reconnecting or Offline. When the token expires, the server closes the connection and
+   the page asks you to sign in again.
+5. A customer token is refused by `/hubs/admin`, and the dashboard says the page is for admins.
+
+Everything under `/app` gets its own CSP: `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self';
+connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`. Nothing on the pages is inline,
+and `connect-src 'self'` covers the WebSocket to the same host. For the same reason the SignalR client is served by
+the site: `wwwroot/app/lib/signalr/signalr.min.js` is `@microsoft/signalr` 10.0.11 (MIT, matching ASP.NET Core 10),
+checked against npm's integrity value. Order data reaches the page only as text, never as HTML. Files under `/app`
+go out with `Cache-Control: no-cache` and an ETag, so a browser checks its copy on every load (a cheap 304) and a new
+version takes effect at once. Short IDs on the pages and in the email subject are the GUID's last 8 characters: our
+IDs are version 7 GUIDs, whose first characters are a timestamp shared by everything created in the same minute.
+
+`dotnet run --project src/Shop.Api` (or the Docker image) serves the pages; running `Shop.Api.dll` from `bin/` doesn't,
+because a build leaves `wwwroot` in the project folder.
+
+With read routing on (R3-11), a reload can read a replica a moment behind. A page still never goes back to an older
+state, but a change that is still replicating shows only at the next event or reload; read routing is off by default.
+
+`LivePagesTests` (conformance, through the real Program) check that every file loads without a token under that CSP,
+that `/app` opens the customer's page, that the pages have no inline scripts, styles or handlers, and that their
+scripts never write HTML or evaluate code. `LiveEventContractTests` check that the pages listen for R4-07's method
+names (`RealtimeEvents`) and that each notification arrives with the fields the pages read; `OrdersApiTests` check the
+version.
 
 ## Email worker (task R4-03)
 
