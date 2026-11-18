@@ -232,7 +232,9 @@ internal sealed class QueueConsumer<THandler>(
         // dead-letter queue still carries the x-delivery-count it had there, while RabbitMQ counts afresh
         var message = new ReceivedMessage(
             Guid.TryParse(properties.MessageId, out var id) ? id : null,
-            delivery.RoutingKey,
+            // Direct queue delivery uses the queue name as routing key. Keep the logical event type, and accept
+            // older/untyped messages that used the event routing key before the direct email route was introduced.
+            string.IsNullOrWhiteSpace(properties.Type) ? delivery.RoutingKey : properties.Type,
             delivery.Body.ToArray(),
             delivery.Redelivered ? FailedDeliveries(properties) : 0);
 

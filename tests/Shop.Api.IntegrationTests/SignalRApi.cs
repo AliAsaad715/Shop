@@ -8,11 +8,14 @@ using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using Shop.Api.Routing;
 using Shop.Modules.Notifications;
+using Shop.Modules.Notifications.Realtime;
+using Shop.Messaging;
 using Shop.Modules.Users;
 using Shop.SharedKernel.Auth;
 using Shop.SharedKernel.Errors;
@@ -20,15 +23,29 @@ using Xunit;
 
 namespace Shop.Api.IntegrationTests;
 
-// Uses the real module registrations and JWT validation. No broker, database migrations or fake auth scheme.
+// Real JWT validation and WebSockets without database migrations or fake auth. Security tests omit the broker;
+// live-delivery tests opt into messaging against their own container.
 public sealed class SignalRApi : IAsyncLifetime
 {
+    private readonly Dictionary<string, string?>? _messagingSettings;
+    private readonly string _clientName;
+    private readonly Action<IServiceCollection>? _configureServices;
     private readonly byte[] _key = RandomNumberGenerator.GetBytes(32);
     private readonly ConnectedConnections _connections = new();
     private WebApplication _app = null!;
 
     public HttpClient Client { get; private set; } = null!;
     public IServiceProvider Services => _app.Services;
+
+    public SignalRApi() : this(null) { }
+
+    internal SignalRApi(Dictionary<string, string?>? messagingSettings, string? clientName = null,
+        Action<IServiceCollection>? configureServices = null)
+    {
+        _messagingSettings = messagingSettings;
+        _clientName = clientName ?? $"signalr-tests-{Guid.NewGuid():N}";
+        _configureServices = configureServices;
+    }
 
     public async Task InitializeAsync()
     {
@@ -49,9 +66,21 @@ public sealed class SignalRApi : IAsyncLifetime
             ["LoginRateLimit:WindowSeconds"] = "60",
         });
         builder.Services.AddUsersModule().AddNotificationsModule();
+        if (_messagingSettings is not null)
+        {
+            builder.Configuration.AddInMemoryCollection(_messagingSettings);
+            builder.Services.AddShopMessaging(_clientName);
+        }
+        else
+        {
+            // R4-06's security tests stay independent of RabbitMQ.
+            builder.Services.Remove(builder.Services.Single(service =>
+                service.ServiceType == typeof(IHostedService) && service.ImplementationType == typeof(LiveUpdateConsumer)));
+        }
         builder.Services.AddErrorContract();
         builder.Services.AddSingleton(_connections);
         builder.Services.AddSignalR(options => options.AddFilter<ConnectedConnections>());
+        _configureServices?.Invoke(builder.Services);
 
         _app = builder.Build();
         _app.UseExceptionHandler();
@@ -126,8 +155,8 @@ public sealed class SignalRApi : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        Client.Dispose();
-        await _app.DisposeAsync();
+        Client?.Dispose();
+        if (_app is not null) await _app.DisposeAsync();
     }
 
     private sealed class ConnectedConnections : IHubFilter

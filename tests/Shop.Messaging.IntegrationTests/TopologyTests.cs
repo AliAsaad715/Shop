@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using RabbitMQ.Client;
 using Shop.Messaging.Publishing;
 using Xunit;
 
@@ -38,7 +39,7 @@ public sealed class TopologyTests(RabbitMqFixture fixture)
         var dlq = await fixture.GetJsonAsync($"queues/%2F/{ShopTopology.EmailDeadLetterQueue}");
         Assert.Equal("quorum", dlq.GetProperty("type").GetString());
 
-        Assert.Equal(["order.placed"], await BindingKeysAsync(ShopTopology.EventsExchange, ShopTopology.EmailQueue));
+        Assert.Empty(await BindingKeysAsync(ShopTopology.EventsExchange, ShopTopology.EmailQueue));
         Assert.Equal(["email.order-confirmation"], await BindingKeysAsync(ShopTopology.DeadLetterExchange, ShopTopology.EmailDeadLetterQueue));
         Assert.Equal(HealthStatus.Healthy, await RabbitMqFixture.HealthAsync(host));
     }
@@ -56,6 +57,36 @@ public sealed class TopologyTests(RabbitMqFixture fixture)
 
         Assert.Equal(HealthStatus.Healthy, await RabbitMqFixture.HealthAsync(second));
         Assert.Equal(1u, await fixture.CountAsync(ShopTopology.EmailQueue));
+    }
+
+    [Fact]
+    public async Task UpgradeRemovesTheLegacyBindingWithoutDroppingQueuedEmailsOrEnqueuingDuplicates()
+    {
+        using var first = await fixture.StartConnectedHostAsync();
+        await fixture.PurgeAsync();
+        var publisher = first.Services.GetRequiredService<IEventPublisher>();
+        var before = RabbitMqFixture.Event(ShopTopology.RoutingKeys.OrderPlaced);
+
+        // Simulate the previous release, including a real waiting message published through its legacy route.
+        await fixture.Probe.QueueBindAsync(ShopTopology.EmailQueue, ShopTopology.EventsExchange, ShopTopology.RoutingKeys.OrderPlaced);
+        var connection = await first.Services.GetRequiredService<RabbitMqConnection>().GetAsync(default);
+        await using var legacy = await connection.CreateChannelAsync(new CreateChannelOptions(
+            publisherConfirmationsEnabled: true, publisherConfirmationTrackingEnabled: true));
+        await legacy.BasicPublishAsync(ShopTopology.EventsExchange, ShopTopology.RoutingKeys.OrderPlaced, mandatory: true,
+            new BasicProperties { MessageId = before.MessageId.ToString(), Type = before.RoutingKey, DeliveryMode = DeliveryModes.Persistent }, before.Body);
+        Assert.Equal(1u, await fixture.CountAsync(ShopTopology.EmailQueue));
+        using var upgraded = await fixture.StartConnectedHostAsync();
+        Assert.Empty(await BindingKeysAsync(ShopTopology.EventsExchange, ShopTopology.EmailQueue));
+        var after = RabbitMqFixture.Event(ShopTopology.RoutingKeys.OrderPlaced);
+        Assert.True(Assert.Single(await publisher.PublishAsync([after], default)).Confirmed);
+
+        Assert.Equal(2u, await fixture.CountAsync(ShopTopology.EmailQueue));
+        foreach (var message in new[] { before, after })
+            Assert.Equal(message.MessageId.ToString(),
+                (await RabbitMqFixture.GetSoonAsync(fixture.Probe, ShopTopology.EmailQueue, autoAck: true)).BasicProperties.MessageId);
+        await fixture.Probe.QueueUnbindAsync(ShopTopology.EmailQueue, ShopTopology.EventsExchange, ShopTopology.RoutingKeys.OrderPlaced);
+        await upgraded.StopAsync();
+        await first.StopAsync();
     }
 
     [Fact]
@@ -77,7 +108,7 @@ public sealed class TopologyTests(RabbitMqFixture fixture)
         await RabbitMqFixture.WaitUntilAsync(() => connection.IsOpen, "the client to reconnect");
         await RabbitMqFixture.WaitUntilAsync(
             async () => await fixture.ExistsAsync(ShopTopology.EmailQueue) && await fixture.ExistsAsync(ShopTopology.EmailDeadLetterQueue)
-                && (await BindingKeysAsync(ShopTopology.EventsExchange, ShopTopology.EmailQueue)).SequenceEqual(["order.placed"])
+                && (await BindingKeysAsync(ShopTopology.EventsExchange, ShopTopology.EmailQueue)).Length == 0
                 && (await BindingKeysAsync(ShopTopology.DeadLetterExchange, ShopTopology.EmailDeadLetterQueue)).SequenceEqual(["email.order-confirmation"]),
             "the client to declare the queues and bindings again", seconds: 10);
         var email = await fixture.GetJsonAsync($"queues/%2F/{ShopTopology.EmailQueue}");

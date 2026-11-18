@@ -1,8 +1,8 @@
 namespace Shop.Messaging.Publishing;
 
 /// <summary>
-/// What happened to one message. Only <see cref="Confirmed"/> means RabbitMQ stored it in every queue it routes to;
-/// anything else must be published again later.
+/// What happened to one logical event. <see cref="Confirmed"/> requires every physical publish to succeed, including
+/// the mandatory email copy when required. Anything else must be published again later, with the same message ID.
 /// </summary>
 /// <param name="Failure">Why it wasn't confirmed, for logs; null when confirmed.</param>
 public sealed record PublishResult(Guid MessageId, bool Confirmed, string? Failure)

@@ -1,7 +1,7 @@
 namespace Shop.Messaging.Publishing;
 
 /// <summary>
-/// One event to publish to <see cref="ShopTopology.EventsExchange"/>.
+/// One event to publish to <see cref="ShopTopology.EventsExchange"/> and, when required, directly to its email queue.
 /// </summary>
 /// <param name="MessageId">
 /// Stable across retries (the outbox row's ID in R4-02), so a consumer that receives the message twice can tell.

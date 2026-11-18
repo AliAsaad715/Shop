@@ -30,7 +30,8 @@ public enum MessageOutcome
 }
 
 /// <param name="MessageId">The publisher's message ID (the outbox row ID); null when missing or not a GUID.</param>
-/// <param name="Type">The routing key, such as <c>order.placed</c>.</param>
+/// <param name="Type">The logical event type from message properties, such as <c>order.placed</c>;
+/// falls back to the routing key for older messages without a type.</param>
 /// <param name="Body">A copy of the body, so the handler may keep it.</param>
 /// <param name="FailedDeliveries">How many earlier deliveries of this message failed (<c>x-delivery-count</c>).</param>
 public sealed record ReceivedMessage(Guid? MessageId, string Type, ReadOnlyMemory<byte> Body, int FailedDeliveries);
