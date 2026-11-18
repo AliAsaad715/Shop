@@ -705,6 +705,51 @@ They cover query and header authentication, invalid tokens and claims, customer 
 path boundaries, delivery to all of customer A's connections without leaking to customer B, admin group membership
 after reconnecting, and open connections closing at token expiry followed by delivery with a fresh token.
 
+## Live pages (task R4-08)
+
+Two plain pages, served by the API itself from [`src/Shop.Api/wwwroot/app`](src/Shop.Api/wwwroot/app):
+
+| Page | For | Shows |
+| --- | --- | --- |
+| `/app/orders.html` (or `/app`) | Customers | Their orders, each order's lines and history, and each status change as it happens; a form to place an order, and to create an account |
+| `/app/admin.html` | Admins | Every order, newest first: new ones appear as customers place them, status changes as they happen, and buttons move an order to its next status |
+
+How a page works:
+
+1. It loads without a token, as it holds no data, and you sign in on the page. The token stays in that browser tab
+   only (`sessionStorage`), so an admin tab and two customer tabs can sit side by side.
+2. It loads the current orders from the API, then connects to its hub (`/hubs/orders` or `/hubs/admin`) with the
+   SignalR JavaScript client. The token goes in the query string, because browsers can't add a header to a
+   WebSocket; the API accepts it there only under `/hubs` (R4-06).
+3. Events arrive as `orderPlaced` (admins only) and `orderStatusChanged` (admins, and the order's own customer), each
+   the event from the Orders contracts as JSON. A page applies an event only when its `version` is newer than what it
+   shows, so an event that arrives late or twice changes nothing; the page's event log marks it "ignored". The
+   order API's responses now include `version` for this.
+4. If the connection drops, SignalR reconnects by itself (at once, then after 2, 10 and 30 seconds), and the page
+   reloads its orders, since events sent meanwhile are lost. The pill in the header says Live, Reconnecting or
+   Offline. When the token expires, the server closes the connection and the page asks you to sign in again.
+5. A customer token is refused by `/hubs/admin`, and the dashboard says the page is for admins.
+
+Everything under `/app` gets its own CSP: `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self';
+connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`. Nothing on the pages is inline,
+and `connect-src 'self'` covers the WebSocket to the same host. For the same reason the SignalR client is served by
+the site: `wwwroot/app/lib/signalr/signalr.min.js` is `@microsoft/signalr` 10.0.11 (MIT, matching ASP.NET Core 10),
+checked against npm's integrity value. Order data reaches the page only as text, never as HTML. Files under `/app`
+go out with `Cache-Control: no-cache` and an ETag, so a browser checks its copy on every load (a cheap 304) and a new
+version takes effect at once. Short IDs on the pages and in the email subject are the GUID's last 8 characters: our
+IDs are version 7 GUIDs, whose first characters are a timestamp shared by everything created in the same minute.
+
+`dotnet run --project src/Shop.Api` (or the Docker image) serves the pages; running `Shop.Api.dll` from `bin/` doesn't,
+because a build leaves `wwwroot` in the project folder.
+
+The pages connect and show their state now; the live events start flowing with R4-07, which sends them. Until then
+an admin's own change shows on the dashboard from the API's answer.
+
+`LivePagesTests` (conformance, through the real Program) check that every file loads without a token under that CSP,
+that `/app` opens the customer's page, that the pages have no inline scripts, styles or handlers, and that their
+scripts never write HTML or evaluate code. `LiveEventContractTests` check that the pages listen for the names the
+hubs send and that each event arrives with the fields the pages read; `OrdersApiTests` check the version.
+
 ## Email worker (task R4-03)
 
 [`src/Shop.Worker`](src/Shop.Worker) is a separate .NET Worker Service in its own container (`worker` in compose).

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orders dashboard</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/app.css">
+  <!-- Both from this site: the page's CSP allows scripts from 'self' only, never inline -->
+  <script src="lib/signalr/signalr.min.js" defer></script>
+  <script type="module" src="js/admin.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <h1>Orders dashboard</h1>
+    <span id="live" class="pill" data-state="offline">Offline</span>
+    <span id="who" class="who"></span>
+    <button id="sign-out" class="secondary" type="button" hidden>Sign out</button>
+  </header>
+
+  <main>
+    <section id="sign-in" class="panel" hidden>
+      <h2>Sign in as an admin</h2>
+      <form id="sign-in-form">
+        <label>Email <input id="email" name="email" type="email" autocomplete="username" required></label>
+        <label>Password <input id="password" name="password" type="password" autocomplete="current-password" required></label>
+        <button type="submit">Sign in</button>
+      </form>
+      <p id="sign-in-error" class="error" role="alert"></p>
+    </section>
+
+    <div id="dashboard" class="columns" hidden>
+      <section class="panel">
+        <h2>Orders, newest first</h2>
+        <p id="notice" class="notice" role="status"></p>
+        <div class="scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Placed</th>
+                <th>Order</th>
+                <th>Customer</th>
+                <th class="amount">Items</th>
+                <th class="amount">Total</th>
+                <th>Status</th>
+                <th>Move to</th>
+              </tr>
+            </thead>
+            <tbody id="orders"></tbody>
+          </table>
+        </div>
+        <p id="no-orders" class="empty" hidden>No orders yet. New ones appear here as customers place them.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Live events</h2>
+        <p class="notice">New orders and status changes appear here as they arrive.</p>
+        <ol id="events" class="events"></ol>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

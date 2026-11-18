@@ -3,9 +3,10 @@ using Shop.Modules.Orders.Domain;
 
 namespace Shop.Modules.Orders.Reading;
 
+/// <param name="Version">Goes up with each status change; the version a live order event carries (task R4-08).</param>
 internal sealed record OrderResponse(
     Guid Id, Guid CustomerId, OrderStatus Status, decimal Total, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt,
-    IReadOnlyList<OrderLineResponse> Lines, IReadOnlyList<OrderStatusChangeResponse> History)
+    IReadOnlyList<OrderLineResponse> Lines, IReadOnlyList<OrderStatusChangeResponse> History, int Version)
 {
     /// <summary>
     /// The one mapping from an order to its response. EF translates it into the query that reads an order, so only
@@ -19,7 +20,8 @@ internal sealed record OrderResponse(
             .ToList(),
         order.History.OrderBy(change => change.ChangedAt).ThenBy(change => change.Id)
             .Select(change => new OrderStatusChangeResponse(change.FromStatus, change.ToStatus, change.ChangedBy, change.ChangedAt))
-            .ToList());
+            .ToList(),
+        order.Version);
 
     private static readonly Func<Order, OrderResponse> FromOrder = Projection.Compile();
 

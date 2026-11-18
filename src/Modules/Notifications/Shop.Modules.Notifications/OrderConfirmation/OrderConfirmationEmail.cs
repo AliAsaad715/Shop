@@ -30,6 +30,7 @@ internal static class OrderConfirmationEmail
             .AppendLine()
             .AppendLine("Shop");
 
-        return new EmailMessage(messageId, to, $"We received your order {order.OrderId.ToString()[..8]}", body.ToString());
+        // The ID's end: a version 7 GUID starts with a timestamp, so its first characters repeat for a minute's orders
+        return new EmailMessage(messageId, to, $"We received your order {order.OrderId.ToString()[^8..]}", body.ToString());
     }
 }

@@ -54,7 +54,7 @@ internal static class OrderEndpoints
                 .Skip((int)(((long)request.Page - 1) * request.PageSize)).Take(request.PageSize)
                 .Select(order => new OrderSummaryResponse(
                     order.Id, order.CustomerId, order.Status, order.Total,
-                    order.Lines.Sum(line => line.Quantity), order.CreatedAt, order.UpdatedAt))
+                    order.Lines.Sum(line => line.Quantity), order.CreatedAt, order.UpdatedAt, order.Version))
                 .ToListAsync(token);
             return new PagedResponse<OrderSummaryResponse>(items, request.Page, request.PageSize, totalCount);
         }, ct);
