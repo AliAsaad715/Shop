@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using System.Net.WebSockets;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http.Connections;
@@ -98,6 +99,10 @@ public sealed class SignalRApi : IAsyncLifetime
     }
 
     public string Token(Guid userId, string role = Roles.Customer, string? invalid = null, TimeSpan? lifetime = null)
+        => CreateToken(_key, userId, role, invalid, lifetime);
+
+    internal static string CreateToken(byte[] key, Guid userId, string role = Roles.Customer,
+        string? invalid = null, TimeSpan? lifetime = null)
     {
         var now = DateTime.UtcNow;
         var claims = new Dictionary<string, object>
@@ -119,17 +124,19 @@ public sealed class SignalRApi : IAsyncLifetime
             NotBefore = now.AddMinutes(-5),
             Expires = invalid == "expired" ? now.AddMinutes(-2) : now.Add(lifetime ?? TimeSpan.FromMinutes(15)),
             SigningCredentials = new SigningCredentials(
-                new SymmetricSecurityKey(invalid == "signature" ? RandomNumberGenerator.GetBytes(32) : _key),
+                new SymmetricSecurityKey(invalid == "signature" ? RandomNumberGenerator.GetBytes(32) : key),
                 SecurityAlgorithms.HmacSha256),
             Claims = claims,
         });
     }
 
     public HubConnection Connection(string path, string token, bool queryToken = true)
+        => Connection(_app.GetTestServer(), Client.BaseAddress!, path, token, queryToken);
+
+    internal static HubConnection Connection(TestServer server, Uri baseAddress, string path, string token, bool queryToken = true)
     {
-        var server = _app.GetTestServer();
         var url = path + (queryToken ? $"?access_token={Uri.EscapeDataString(token)}" : string.Empty);
-        return new HubConnectionBuilder().WithUrl(new Uri(Client.BaseAddress!, url), options =>
+        return new HubConnectionBuilder().WithUrl(new Uri(baseAddress, url), options =>
         {
             options.Transports = HttpTransportType.WebSockets;
             options.HttpMessageHandlerFactory = _ => server.CreateHandler();
@@ -146,6 +153,10 @@ public sealed class SignalRApi : IAsyncLifetime
         }).Build();
     }
 
+    internal Task<WebSocket> DirectWebSocketAsync(string path, string token, CancellationToken ct) =>
+        _app.GetTestServer().CreateWebSocketClient().ConnectAsync(
+            new Uri(Client.BaseAddress!, $"{path}?access_token={Uri.EscapeDataString(token)}"), ct);
+
     public async Task StartAsync(HubConnection connection, CancellationToken ct)
     {
         await connection.StartAsync(ct);
@@ -159,7 +170,7 @@ public sealed class SignalRApi : IAsyncLifetime
         if (_app is not null) await _app.DisposeAsync();
     }
 
-    private sealed class ConnectedConnections : IHubFilter
+    internal sealed class ConnectedConnections : IHubFilter
     {
         private readonly ConcurrentDictionary<string, TaskCompletionSource> _connected = new();
 

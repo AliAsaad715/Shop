@@ -1,0 +1,62 @@
+name: .NET integration tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Check Docker
+        run: docker info
+
+      - name: Build solution
+        id: build
+        run: dotnet build Shop.slnx -m:1 -nr:false
+
+      # Keep running the remaining suites after an individual failure, retaining the job's failed status.
+      - name: Messaging integration tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 10
+        run: dotnet test tests/Shop.Messaging.IntegrationTests --no-build -m:1 -nr:false --logger "trx;LogFileName=messaging.trx" --results-directory artifacts/test-results/r4-09
+
+      - name: Orders integration tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 10
+        run: dotnet test tests/Shop.Modules.Orders.IntegrationTests --no-build -m:1 -nr:false --logger "trx;LogFileName=orders.trx" --results-directory artifacts/test-results/r4-09
+
+      - name: Notifications integration tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 10
+        run: dotnet test tests/Shop.Modules.Notifications.IntegrationTests --no-build -m:1 -nr:false --logger "trx;LogFileName=notifications.trx" --results-directory artifacts/test-results/r4-09
+
+      - name: API integration tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 10
+        run: dotnet test tests/Shop.Api.IntegrationTests --no-build -m:1 -nr:false --logger "trx;LogFileName=api.trx" --results-directory artifacts/test-results/r4-09
+
+      - name: Upload test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: dotnet-integration-test-results
+          path: artifacts/test-results/r4-09/*.trx
+          if-no-files-found: warn
+          retention-days: 7

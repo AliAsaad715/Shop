@@ -171,9 +171,9 @@ public sealed class PublisherTests(RabbitMqFixture fixture) : IAsyncLifetime
         Assert.Equal("delivery_limit", RabbitMqFixture.Header(dead.BasicProperties, "x-first-death-reason"));
         Assert.Equal(0u, await fixture.CountAsync(ShopTopology.EmailQueue));
 
-        // x-delivery-count says how many deliveries failed before this one. With a limit of 5 the sixth failure
-        // dead-letters the message: the first try plus five retries
-        Assert.Equal(["0", "1", "2", "3", "4", "5"], failedSoFar);
+        // x-delivery-count is absent on the first delivery. A limit of 4 dead-letters the fifth failure:
+        // the first delivery plus four retries.
+        Assert.Equal(["0", "1", "2", "3", "4"], failedSoFar);
     }
 
     [Fact]

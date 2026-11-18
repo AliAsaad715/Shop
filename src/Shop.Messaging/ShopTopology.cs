@@ -28,8 +28,8 @@ public static class ShopTopology
     public const string EmailDeadLetterQueue = "email.order-confirmation.dlq";
 
     /// <summary>
-    /// How many failed deliveries the email queue allows; the next failure dead-letters the message, so 5 means the
-    /// first try plus five retries. Set explicitly: since RabbitMQ 4.0, quorum queues default to 20 and then drop the
+    /// How many failed redeliveries the email queue allows: 4 means the first delivery plus four retries, with the
+    /// fifth failure dead-lettered. Set explicitly: since RabbitMQ 4.0, quorum queues default to 20 and then drop the
     /// message when no dead-letter exchange is set.
     /// </summary>
     /// <remarks>
@@ -37,7 +37,7 @@ public static class ShopTopology
     /// <c>basic.nack</c> with requeue doesn't count, so a consumer that nacks can retry a message forever: consumers
     /// of this queue must reject.
     /// </remarks>
-    public const int EmailDeliveryLimit = 5;
+    public const int EmailDeliveryLimit = 4;
 
     public static class RoutingKeys
     {

@@ -107,7 +107,7 @@ public sealed class OrderConfirmationHandlerTests(NotificationsFixture fixture) 
         var message = NotificationsFixture.Message(NotificationsFixture.Order());
         fixture.Sender.FailNext(new AuthenticationException("535 5.7.8 Username and Password not accepted"));
 
-        // Counted by RabbitMQ, so after six deliveries it waits in the DLQ until the password is fixed
+        // Counted by RabbitMQ, so after five deliveries it waits in the DLQ until the password is fixed.
         Assert.Equal(MessageOutcome.Retry, await HandleAsync(message));
 
         Assert.Equal(1, fixture.Sender.Attempts);

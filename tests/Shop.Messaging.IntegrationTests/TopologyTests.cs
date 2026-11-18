@@ -30,7 +30,7 @@ public sealed class TopologyTests(RabbitMqFixture fixture)
         Assert.Equal("quorum", email.GetProperty("type").GetString());
         Assert.True(email.GetProperty("durable").GetBoolean());
         var arguments = email.GetProperty("arguments");
-        Assert.Equal(5, arguments.GetProperty("x-delivery-limit").GetInt32());
+        Assert.Equal(4, arguments.GetProperty("x-delivery-limit").GetInt32());
         Assert.Equal("shop.dlx", arguments.GetProperty("x-dead-letter-exchange").GetString());
         Assert.Equal("email.order-confirmation", arguments.GetProperty("x-dead-letter-routing-key").GetString());
         Assert.Equal("at-least-once", arguments.GetProperty("x-dead-letter-strategy").GetString());
@@ -113,7 +113,7 @@ public sealed class TopologyTests(RabbitMqFixture fixture)
             "the client to declare the queues and bindings again", seconds: 10);
         var email = await fixture.GetJsonAsync($"queues/%2F/{ShopTopology.EmailQueue}");
         Assert.Equal("quorum", email.GetProperty("type").GetString());
-        Assert.Equal(5, email.GetProperty("arguments").GetProperty("x-delivery-limit").GetInt32());
+        Assert.Equal(4, email.GetProperty("arguments").GetProperty("x-delivery-limit").GetInt32());
         Assert.Equal(HealthStatus.Healthy, await RabbitMqFixture.HealthAsync(host));
     }
 
