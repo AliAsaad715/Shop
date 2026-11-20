@@ -1060,6 +1060,19 @@ The [.NET integration tests workflow](.github/workflows/dotnet-integration-tests
 four suites on Ubuntu for pull requests, pushes to main and manual dispatch. It runs remaining suites after a failure
 and uploads TRX reports even if a suite fails.
 
+## Interview proof kit (task R4-10)
+
+Three parts, for showing Requirement 4 in an interview:
+
+- [`tests/proof/requirement-4`](tests/proof/requirement-4/README.md): the six interview steps on the running stack,
+  one script for each part. They show orders not waiting for a stopped worker, a crash mid-send, a wrong mail
+  password ending in the DLQ and coming back, and the live pages with the admin hub refusing a customer. Each
+  script puts the stack back as it was, and `results/` has the output of a real run.
+- [ADR 0001](docs/adr/0001-transactional-outbox-and-at-least-once-delivery.md): why the order and its event go
+  through a transactional outbox, why delivery is at least once, and the alternatives we turned down.
+- [The mock interview](docs/interview/requirement-4.md): likely questions with short answers, each pointing to
+  the code, test or proof step that backs it.
+
 ## Verify
 
 ```sh

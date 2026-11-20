@@ -1,0 +1,17 @@
+
+== 5. Admin dashboard: a new order appears at once
+   Tab 1: open http://localhost:55080/app/admin.html and sign in as the admin (admin@shop.local).
+   Tab 2: open http://localhost:55080/app and sign in as alice-1795065978@shop.test, password Proof-Pass-123!.
+   In tab 2, place an order. Tab 1 shows it at once, without a reload, and its Live events box logs OrderPlaced.
+
+== 6. Customer page: the admin's change reaches its customer, and only them
+   Tab 3: open http://localhost:55080/app and sign in as bob-1795065978@shop.test, same password.
+   In tab 1, click Confirmed on Alice's order. Tab 2 shows Confirmed at once and logs OrderStatusChanged;
+   tab 3's Live events box stays empty.
+
+== 6b. The admin hub refuses a customer (checked without a browser)
+   Alice's token, negotiate with /hubs/admin: 403
+   Alice's token in the URL, WebSocket to /hubs/admin: 403
+   the admin's token, negotiate with /hubs/admin: 200
+   the admin's token in the URL, WebSocket to /hubs/admin: 101
+   Alice's token, negotiate with /hubs/orders: 200

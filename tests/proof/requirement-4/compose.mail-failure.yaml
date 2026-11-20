@@ -1,0 +1,16 @@
+# Used only by 3-mail-failure.sh (task R4-10): Mailpit asks for a password, as a real provider does, and the worker
+# signs in with Email:Provider=Smtp and the password in PROOF_SMTP_PASSWORD. Plain-text sign-in is fine here only
+# because Mailpit runs on the same Docker network; a real provider uses StartTls or SslOnConnect.
+services:
+  mailpit:
+    environment:
+      MP_SMTP_AUTH: "shop:right-password"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+  worker:
+    environment:
+      Email__Provider: Smtp
+      Email__Smtp__Host: mailpit
+      Email__Smtp__Port: "1025"
+      Email__Smtp__Security: None
+      Email__Smtp__UserName: shop
+      Email__Smtp__Password: ${PROOF_SMTP_PASSWORD:?set PROOF_SMTP_PASSWORD}

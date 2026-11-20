@@ -1,0 +1,19 @@
+
+== 4. Mail failure: a wrong password, five failed deliveries, then the DLQ
+   $ PROOF_SMTP_PASSWORD=wrong-password docker compose -f compose.yaml -f tests/proof/requirement-4/compose.mail-failure.yaml up -d --wait mailpit worker
+   order: 201 in 0.01 s (01a1f244-c023-7651-9040-196f1e1f8997)
+   worker log, one line per delivery:
+     535: 5.7.8 Authentication credentials invalid, after 0 failed deliveries
+     535: 5.7.8 Authentication credentials invalid, after 1 failed deliveries
+     535: 5.7.8 Authentication credentials invalid, after 2 failed deliveries
+     535: 5.7.8 Authentication credentials invalid, after 3 failed deliveries
+     535: 5.7.8 Authentication credentials invalid, after 4 failed deliveries
+   RabbitMQ: email.order-confirmation.dlq has 1 message; this one is 01a1f244-c026-7248-8c32-c9bd6dbfc345, x-first-death-reason delivery_limit
+   Mailpit: 0 emails for order 01a1f244-c023-7651-9040-196f1e1f8997
+
+== 4b. Fix the password, move the message back, and the email arrives once
+   $ PROOF_SMTP_PASSWORD=right-password docker compose -f compose.yaml -f tests/proof/requirement-4/compose.mail-failure.yaml up -d --wait worker
+   $ docker compose exec -T rabbitmq rabbitmqctl set_parameter shovel email-dlq-move-back {"src-protocol": "amqp091", "src-uri": "amqp://", "src-queue": "email.order-confirmation.dlq", "dest-protocol": "amqp091", "dest-uri": "amqp://", "dest-queue": "email.order-confirmation", "src-delete-after": "queue-length"}
+   Mailpit: 1 email for order 01a1f244-c023-7651-9040-196f1e1f8997
+   notifications.processed_messages: 1 row for it
+   RabbitMQ: email.order-confirmation.dlq has 0 messages; shovels left: 0

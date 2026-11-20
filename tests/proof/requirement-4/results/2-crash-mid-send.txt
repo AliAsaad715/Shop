@@ -1,0 +1,17 @@
+
+== 3. Crash mid-send: the message comes back, and the email arrives once
+   $ docker compose pause mailpit
+   order: 201 in 0.01 s (01a1f244-50d3-70f3-8471-f842dfdb91e0)
+   RabbitMQ: 1 unacknowledged; the worker has it and is waiting for the mail server
+   $ docker compose kill worker
+   RabbitMQ: 1 ready again, x-delivery-count 1: the lost connection returned it and counted a failed delivery
+   $ docker compose unpause mailpit
+   $ docker compose start worker
+   Mailpit: 1 email for order 01a1f244-50d3-70f3-8471-f842dfdb91e0
+   notifications.processed_messages: 1 row for it
+
+== 3b. Delivered twice: the inbox stops a second email
+   publishing message 01a1f244-50d7-738c-a774-ee0940ee2c9e to email.order-confirmation again, as a redelivery after a crash would
+   worker: Message 01a1f244-50d7-738c-a774-ee0940ee2c9e was handled before; acknowledging it without sending again
+   Mailpit: still 1 email for order 01a1f244-50d3-70f3-8471-f842dfdb91e0
+   notifications.processed_messages: still 1 row for it

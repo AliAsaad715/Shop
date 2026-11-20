@@ -1,0 +1,16 @@
+
+== 1. Stopped worker: orders don't wait for email
+   $ docker compose stop worker
+   order 1: 201 in 0.01 s (01a1f244-057e-7bfb-8caa-e82617e74860)
+   order 2: 201 in 0.01 s (01a1f244-0597-74c0-9a1b-6ab594ec1e07)
+   order 3: 201 in 0.01 s (01a1f244-05b3-76cd-bd05-e66b89fa90c2)
+   RabbitMQ (http://localhost:55673, Queues and Streams): email.order-confirmation has 3 messages ready and 0 consumers
+   Mailpit: 0 emails to worker-1795065905@shop.test
+
+== 2. Restart: the worker sends them all
+   $ docker compose start worker
+   after 10 s: email.order-confirmation has 0 messages and 1 consumer
+   Mailpit (http://localhost:55825): 3 emails to worker-1795065905@shop.test:
+     We received your order 89fa90c2
+     We received your order 94ec1e07
+     We received your order 17e74860
