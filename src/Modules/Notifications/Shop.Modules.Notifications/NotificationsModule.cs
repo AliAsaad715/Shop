@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
@@ -63,8 +64,17 @@ public static class NotificationsModule
 
     public static IEndpointRouteBuilder MapNotificationsEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapHub<OrdersHub>("/hubs/orders", options => options.CloseOnAuthenticationExpiration = true);
-        endpoints.MapHub<AdminHub>("/hubs/admin", options => options.CloseOnAuthenticationExpiration = true);
+        endpoints.MapHub<OrdersHub>("/hubs/orders", HubOptions);
+        endpoints.MapHub<AdminHub>("/hubs/admin", HubOptions);
         return endpoints;
+    }
+
+    // WebSockets only (task R5-10). Behind Nginx, with no sticky sessions, each request can reach a different instance:
+    // a WebSocket is one connection, but long polling and server-sent events take several requests that must all reach
+    // the instance holding the connection, so they would fail at random instead of not at all
+    private static void HubOptions(HttpConnectionDispatcherOptions options)
+    {
+        options.CloseOnAuthenticationExpiration = true;
+        options.Transports = HttpTransportType.WebSockets;
     }
 }

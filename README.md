@@ -686,19 +686,25 @@ including a new connection after a reconnect. Clients have no subscribe or join-
 all of a user's connections receive messages addressed to that user. R4-07's live-update consumer can use the
 internal hubs from inside Notifications; Orders does not depend on SignalR.
 
-Use the normal JWT returned by login with the SignalR JavaScript client's `accessTokenFactory`:
+Use the normal JWT returned by login with the SignalR JavaScript client's `accessTokenFactory`, and open the
+WebSocket straight away (task R5-10: behind Nginx, a negotiate request and the WebSocket after it can reach different
+instances):
 
 ```js
 const connection = new signalR.HubConnectionBuilder()
-  .withUrl("/hubs/orders", { accessTokenFactory: () => accessToken })
+  .withUrl("/hubs/orders", {
+    accessTokenFactory: () => accessToken,
+    skipNegotiation: true,
+    transport: signalR.HttpTransportType.WebSockets,
+  })
   .withAutomaticReconnect()
   .build();
 await connection.start();
 ```
 
-Use `/hubs/admin` with an admin token for the dashboard. The client sends `Authorization: Bearer` where the
-transport supports it; browser WebSockets and SSE send `access_token` in the query string. The API accepts that
-query parameter only under the `/hubs` path segment, and applies its existing signature, issuer, audience,
+Use `/hubs/admin` with an admin token for the dashboard. The hubs accept WebSockets only. The client sends
+`Authorization: Bearer` where it can; a browser's WebSocket sends `access_token` in the query string. The API accepts
+that query parameter only under the `/hubs` path segment, and applies its existing signature, issuer, audience,
 lifetime and claim validation. REST endpoints still require the bearer header.
 
 Both hubs set `CloseOnAuthenticationExpiration`: an open connection closes when its token expires. Supply a
@@ -1120,10 +1126,40 @@ What changed from the plan's sketch, each found by these checks:
 - SignalR's browser client puts the user's token in the URL; the access log hides it (`access_token=[hidden]`).
 - `nginx:1.30.7-alpine`, the current stable release; the plan named 1.28.
 
-**R5-03 and R5-10 belong together.** Through Nginx, a page that negotiates before opening its WebSocket, as the live
-pages do today, failed 10 times out of 10: with nothing else going on, `least_conn` takes turns, so the WebSocket
-always reaches a different instance from the negotiation (audit finding 7). The live pages work behind Nginx only
-once R5-10 makes them skip negotiation, so R5-10 should land before R5-03 or with it.
+**Why R5-10 comes before R5-03.** Through Nginx, a page that negotiates before opening its WebSocket, as the live
+pages did, failed 10 times out of 10: with nothing else going on, `least_conn` takes turns, so the WebSocket always
+reaches a different instance from the negotiation (audit finding 7). R5-10, below, makes the pages skip negotiation.
+
+## SignalR behind Nginx (task R5-10)
+
+The live pages open their WebSocket straight away, without the negotiate request first: `connectLive` in
+[`session.js`](src/Shop.Api/wwwroot/app/js/session.js) sets `skipNegotiation` with the WebSockets transport, and the
+hubs accept WebSockets only. Reconnecting already reloaded what the page shows (R4-08); it skips negotiation too, so a
+page whose instance stops reconnects through Nginx to another one.
+
+- A browser never tells a page why a WebSocket was refused, so an expired token would have looked like a network
+  fault. When connecting fails, and only then, `connectLive` asks the hub's negotiate endpoint with the same token: an
+  ordinary request, whose 401 or 403 the pages act on as before, signing out with a message.
+- Long polling and server-sent events take several requests that must all reach the instance holding the connection,
+  which Nginx without sticky sessions can't promise. The hubs now refuse them at once:
+  `SignalRSecurityTests.HubsOfferOnlyWebSocketsAndRefuseTheOtherTransports`, which fails without the change.
+- The .NET test client still negotiates: the integration tests run against one in-memory server, and they rely on the
+  connection ID that only negotiating gives a client.
+
+Step 8 of the Nginx checks runs the pages' own code in headless Chromium, through Nginx:
+
+```sh
+tests/proof/requirement-5/nginx-checks.sh   # step 8 needs Chromium or Chrome; without one it says so and skips
+```
+
+In the [saved run](tests/proof/requirement-5/results), `connectLive` connected 10 times out of 10 with no negotiate
+request, where step 6 shows the old way failing 10 times out of 10. When the instance holding the page's WebSocket
+stopped, the page went live, reconnecting, live within 3 seconds (its first retry can still reach the stopping
+instance; the next comes 2 seconds later), then reloaded its orders.
+
+Found while testing: since Nginx 1.29.7, Nginx keeps idle connections to each instance open for the next request
+(keepalive is on by default, over HTTP/1.1), where the plan's 1.28 closed every one. Nginx drops an idle connection
+after 60 seconds, before Kestrel would after 130; the config now says so.
 
 ## Verify
 

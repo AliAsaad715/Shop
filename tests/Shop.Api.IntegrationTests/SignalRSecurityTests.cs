@@ -64,6 +64,32 @@ public sealed class SignalRSecurityTests(SignalRApi api) : IClassFixture<SignalR
     }
 
     [Theory]
+    [InlineData("/hubs/orders", Roles.Customer)]
+    [InlineData("/hubs/admin", Roles.Admin)]
+    public async Task HubsOfferOnlyWebSocketsAndRefuseTheOtherTransports(string path, string role)
+    {
+        // Task R5-10: behind Nginx each request can reach another instance, so only a transport that is a single
+        // connection works. Long polling and server-sent events are refused at once instead of failing later at random
+        var token = Uri.EscapeDataString(api.Token(Guid.NewGuid(), role));
+        using var negotiated = await api.Client.PostAsync($"{path}/negotiate?negotiateVersion=1&access_token={token}", null);
+        Assert.Equal(HttpStatusCode.OK, negotiated.StatusCode);
+        var offer = await negotiated.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(new[] { "WebSockets" }, offer.GetProperty("availableTransports").EnumerateArray()
+            .Select(transport => transport.GetProperty("transport").GetString()!));
+
+        var connection = $"{path}?id={offer.GetProperty("connectionToken").GetString()}&access_token={token}";
+        using var longPolling = await api.Client.GetAsync(connection);
+        Assert.Equal(HttpStatusCode.NotFound, longPolling.StatusCode);
+        Assert.Contains("LongPolling transport not supported", await longPolling.Content.ReadAsStringAsync());
+
+        using var serverSentEvents = new HttpRequestMessage(HttpMethod.Get, connection);
+        serverSentEvents.Headers.Accept.ParseAdd("text/event-stream");
+        using var events = await api.Client.SendAsync(serverSentEvents, HttpCompletionOption.ResponseHeadersRead);
+        Assert.Equal(HttpStatusCode.NotFound, events.StatusCode);
+        Assert.Contains("ServerSentEvents transport not supported", await events.Content.ReadAsStringAsync());
+    }
+
+    [Theory]
     [InlineData("/api/v1/test/protected")]
     [InlineData("/hubs-extra/protected")]
     public async Task QueryTokensDoNotAuthenticateRestOrPrefixLookalikes(string path)

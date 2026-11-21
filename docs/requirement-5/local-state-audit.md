@@ -188,7 +188,8 @@ since R4-08 (`withAutomaticReconnect` and [`onreconnected`](../../src/Shop.Api/w
 Only `skipNegotiation: true` with the WebSockets transport is missing.
 
 **Before → after.** Check 5 without Nginx. Through Nginx: open the order page about ten times; before, some fail to
-connect; after, none do.
+connect; after, none do. Done in R5-10: in a headless browser through Nginx (the Nginx checks, step 8), the pages'
+`connectLive` connected 10 times out of 10 without a negotiate request.
 
 ### 8. The OpenAPI `servers` URL comes from the Host header
 

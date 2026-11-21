@@ -132,8 +132,8 @@ async function start() {
     });
     await load();
   } catch (error) {
-    // ApiError carries status; SignalR's negotiation error carries statusCode
-    if ([401, 403].includes(error.status ?? error.statusCode) || /\b40[13]\b/.test(error.message)) {
+    // An ApiError, from the list or from a hub that refused the connection (connectLive asks it why)
+    if ([401, 403].includes(error.status)) {
       return signOut("This page is for admins. Sign in with an admin account.");
     }
     page.notice.textContent = `Can't load the dashboard: ${describe(error)}`;
