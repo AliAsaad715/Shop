@@ -1,0 +1,29 @@
+# The first manual run of check 1 (2026-11-21), before the script existed: three Shop.Api processes started at
+# once on an empty database. Excerpts of each log; the full logs were throwaway. api1 and api3 both applied the
+# orders module's AddPendingReleases migration, so api1's CREATE TABLE failed. api2 lost the admin-seeding race.
+
+== api1
+Applying migration '20261028152735_InitialUsers'.
+Applying migration '20261028100448_InitialProducts'.
+Applying migration '20261110174050_ProductKeysetIndexes'.
+Applying migration '20261111162921_ProductRowVersions'.
+Applying migration '20261028214755_InitialOrders'.
+Applying migration '20261104190800_AddPendingReleases'.
+Unhandled exception. Npgsql.PostgresException (0x80004005): 42P07: relation "pending_releases" already exists
+exit=134
+
+== api2
+No migrations were applied. The database is already up to date.
+---> Npgsql.PostgresException (0x80004005): 23505: duplicate key value violates unique constraint "EmailIndex"
+MessageText: duplicate key value violates unique constraint "EmailIndex"
+Hosting failed to start
+Unhandled exception. Microsoft.EntityFrameworkCore.DbUpdateException: An error occurred while saving the entity changes. See the inner exception for details.
+exit=134
+
+== api3
+No migrations were applied. The database is already up to date.
+Applying migration '20261104190800_AddPendingReleases'.
+Applying migration '20261114175714_AddOutbox'.
+Seeded admin account admin@shop.local
+Seeded 6 demo products
+Now listening on: http://127.0.0.1:5103

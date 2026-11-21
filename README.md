@@ -1073,6 +1073,23 @@ Three parts, for showing Requirement 4 in an interview:
 - [The mock interview](docs/interview/requirement-4.md): likely questions with short answers, each pointing to
   the code, test or proof step that backs it.
 
+## Local-state audit (task R5-01)
+
+Everything one API instance keeps for itself, found before Requirement 5 runs three of them behind Nginx:
+[the audit](docs/requirement-5/local-state-audit.md) lists 9 problems, each with the task that fixes it and a
+before-and-after check, 8 things that are already safe, and where the Requirement 5 plan is wrong. The checks run
+three instances side by side on a throwaway Postgres and Redis, never touching the Compose stack:
+
+```sh
+tests/proof/requirement-5/local-state-checks.sh   # about two minutes; Docker, .NET SDK, curl, jq; Linux or WSL
+```
+
+The first check starts three instances at once on an empty database; in the
+[saved run](tests/proof/requirement-5/results), 6 of 9 first starts crashed while seeding the admin. The others show
+15 login tries a minute instead of 5, an uploaded image found by 3 requests in 9, an edited product served stale for
+up to 5 seconds, a SignalR WebSocket refused by the instance that didn't negotiate it, and warehouse retries run by
+several instances at once.
+
 ## Verify
 
 ```sh
