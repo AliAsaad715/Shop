@@ -1090,6 +1090,41 @@ The first check starts three instances at once on an empty database; in the
 up to 5 seconds, a SignalR WebSocket refused by the instance that didn't negotiate it, and warehouse retries run by
 several instances at once.
 
+## Nginx load balancer (task R5-02)
+
+[`deploy/nginx/default.conf`](deploy/nginx/default.conf) is the load balancer that R5-03 puts in front of api1–api3:
+`least_conn` over a shared `zone`, `resolve` so a changed or new address is picked up without a reload, passive health
+checks (`max_fails=1 fail_timeout=10s`), WebSocket upgrades under `/hubs/`, and an `upstreams` access log that names
+the instance behind each request. Compose doesn't use it yet; its checks run it in front of three API containers on a
+throwaway network, and CI runs `nginx -t` on every change to it:
+
+```sh
+tests/proof/requirement-5/nginx-checks.sh   # about two minutes; Docker, .NET SDK, curl, jq, nginx:1.30.7-alpine
+```
+
+In the [saved run](tests/proof/requirement-5/results), 300 requests split 100/100/100, and api3, started after Nginx,
+got traffic 1 s after it began listening, without a reload. While api2 stopped and started again, all 246 requests
+answered 200; the slowest took 2 s, the connect timeout before Nginx tried another instance.
+
+What changed from the plan's sketch, each found by these checks:
+
+- `Host $http_host`, not `$host`, which drops the port from the URLs the API builds (audit finding 8). The OpenAPI
+  document now points at `http://127.0.0.1:58080/`, back through Nginx.
+- The access log is set in the `server` block. At the `http` level it would add to the image's own log and write every
+  request twice.
+- `resolver_timeout 5s`. `valid=10s` only applies to lookups that succeed; after a failed one (Docker answers SERVFAIL
+  for a stopped container), Nginx waits `resolver_timeout`, 30 seconds by default, and a new instance waited 25 s.
+- `client_max_body_size 4m`: Nginx's default of 1 MB refuses product images, which may be 2 MB. Above 4 MB Nginx
+  answers itself; between the two limits the API answers with its Problem Details.
+- `server_tokens off`, so Nginx doesn't advertise its version where the API sends no `Server` header (task 13).
+- SignalR's browser client puts the user's token in the URL; the access log hides it (`access_token=[hidden]`).
+- `nginx:1.30.7-alpine`, the current stable release; the plan named 1.28.
+
+**R5-03 and R5-10 belong together.** Through Nginx, a page that negotiates before opening its WebSocket, as the live
+pages do today, failed 10 times out of 10: with nothing else going on, `least_conn` takes turns, so the WebSocket
+always reaches a different instance from the negotiation (audit finding 7). The live pages work behind Nginx only
+once R5-10 makes them skip negotiation, so R5-10 should land before R5-03 or with it.
+
 ## Verify
 
 ```sh

@@ -1,0 +1,30 @@
+# Checks the load balancer's config (task R5-02) with the Nginx version it runs on. nginx -t parses every directive;
+# resolve lets it pass without the API instances the config names. tests/proof/requirement-5/nginx-checks.sh shows
+# what the config does at runtime
+name: Nginx
+
+on:
+  pull_request:
+    paths:
+      - deploy/nginx/**
+      - .github/workflows/nginx.yml
+  push:
+    branches: [main]
+    paths:
+      - deploy/nginx/**
+      - .github/workflows/nginx.yml
+
+permissions:
+  contents: read
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: nginx -t
+        run: >-
+          docker run --rm --entrypoint nginx
+          -v "$PWD/deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro"
+          nginx:1.30.7-alpine -t

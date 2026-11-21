@@ -179,7 +179,9 @@ WebSocket, which must reach the same instance.
 connection and answers 404. The page fails to connect.
 
 **What the run showed.** Negotiate on api1, then the WebSocket on api1: `101 Switching Protocols`; on api2:
-`404 Not Found`. A WebSocket without negotiation got 101 on api2.
+`404 Not Found`. A WebSocket without negotiation got 101 on api2. Through Nginx it is worse: R5-02's checks saw 10
+of 10 negotiated connections fail, because with nothing else going on `least_conn` takes turns, so the WebSocket
+always reaches the next instance.
 
 **Fix: R5-10**, and it is smaller than the plan says. Reconnecting and reloading the page's state already exist
 since R4-08 (`withAutomaticReconnect` and [`onreconnected`](../../src/Shop.Api/wwwroot/app/js/session.js#L108)).
@@ -206,7 +208,8 @@ Nginx on `http://localhost:8080`, the docs would say `http://localhost/` and sen
 headers add the scheme, which only matters if Nginx ever ends TLS.
 
 **Before → after.** Through Nginx, `curl -s localhost:8080/openapi/v1.json | jq .servers`: before,
-`http://localhost/`; after, `http://localhost:8080/`.
+`http://localhost/`; after, `http://localhost:8080/`. Done in R5-02: its checks show `http://127.0.0.1:58080/`
+through Nginx.
 
 ### 9. Warehouse release retries don't claim their rows
 
