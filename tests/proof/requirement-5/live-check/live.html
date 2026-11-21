@@ -1,0 +1,15 @@
+<!doctype html>
+<!-- Task R5-10's check. tests/proof/requirement-5/nginx-checks.sh copies it into its own API image, at /app/checks/,
+     and opens it in a headless browser through Nginx. Like the live pages, it loads SignalR's client and then a module
+     that imports their session.js: the CSP for /app allows scripts from this site only, never inline -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Live connection check</title>
+  <script src="../lib/signalr/signalr.min.js" defer></script>
+  <script type="module" src="live.js"></script>
+</head>
+<body>
+  <p>Each result goes to Nginx's access log as a request to /health.</p>
+</body>
+</html>

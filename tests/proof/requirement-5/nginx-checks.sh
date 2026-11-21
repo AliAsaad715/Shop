@@ -8,7 +8,8 @@
 # 127.0.0.1:58080 only. The API image is built from a local `dotnet publish` (the same command the API's Dockerfile
 # runs), which is much faster than a full docker build. RabbitMQ and the warehouse point at a closed port, so the API
 # runs Degraded without them, as designed. Everything is removed at the end, even when a step fails. Needs Docker,
-# the .NET SDK, curl and jq, and the nginx:1.30.7-alpine image.
+# the .NET SDK, curl and jq, and the nginx:1.30.7-alpine image. Step 8 (task R5-10) also needs Chromium or Chrome, to
+# run the live pages' own code in a headless browser; without one it says so and skips.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 ulimit -c 0 # a crashing instance must not leave a core dump behind
@@ -45,7 +46,14 @@ seconds_since() { awk -v ns="$(($(date +%s%N) - $1))" 'BEGIN { printf "%.1f", ns
 access_log() { docker logs "$PROXY" 2>/dev/null; }
 error_log() { docker logs "$PROXY" 2>&1 >/dev/null; }
 
+BROWSER="" PROFILE=""
 cleanup() {
+  if [[ -n $BROWSER ]]; then kill "$BROWSER" 2>/dev/null || true; fi
+  if [[ -n $PROFILE ]]; then
+    pkill -f -- "--user-data-dir=$PROFILE" 2>/dev/null || true
+    sleep 1
+    rm -rf "$PROFILE"
+  fi
   docker rm -f "$PROXY" "$PREFIX-api1" "$PREFIX-api2" "$PREFIX-api3" "$PREFIX-postgres" "$PREFIX-redis" \
     "$PREFIX-test" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
@@ -115,6 +123,9 @@ step "Setup"
 say "work folder: $WORK"
 dotnet publish src/Shop.Api/Shop.Api.csproj -c Release -o "$WORK/publish" -p:UseAppHost=false -nologo -v q \
   >"$WORK/publish.log" 2>&1 || { cat "$WORK/publish.log" >&2; fail "dotnet publish failed"; }
+# Step 8's page, served next to the live pages in this image only
+mkdir -p "$WORK/publish/wwwroot/app/checks"
+cp tests/proof/requirement-5/live-check/* "$WORK/publish/wwwroot/app/checks/"
 printf 'FROM mcr.microsoft.com/dotnet/aspnet:10.0\nWORKDIR /app\nCOPY . .\nUSER $APP_UID\nENTRYPOINT ["dotnet", "Shop.Api.dll"]\n' |
   docker build -q -t "$IMAGE" -f - "$WORK/publish" >/dev/null
 say "built the API image from dotnet publish"
@@ -208,7 +219,7 @@ for n in $(seq 1 10); do
     jq -r .connectionToken)
   negotiated+="$(websocket "$NGINX/hubs/admin?id=$connection&access_token=$token" | awk '{ print $2 }') "
 done
-say "10 page loads that negotiate first, as the live pages do today (R5-10 fixes): $negotiated"
+say "10 page loads that negotiate first, as the live pages did before R5-10: $negotiated"
 
 step "7. Passive health checks: api2 stops for 13 s while requests keep coming"
 i=0
@@ -257,3 +268,66 @@ for line in "${failovers[@]}"; do say "  $line"; done
 say "Nginx's error log: $(error_log | grep -c -E 'connect\(\) failed|timed out .*while connecting' || true) failed connections," \
   "$(error_log | grep -c 'temporarily disabled' || true) times an instance was taken out," \
   "$(error_log | grep -c 'api2 could not be resolved' || true) failed lookups of api2"
+
+step "8. The live pages' own code in a browser, through Nginx (task R5-10)"
+# Like wait_for, but returns false instead of failing
+within() {
+  local deadline=$((SECONDS + $1))
+  shift
+  until "$@"; do
+    ((SECONDS < deadline)) || return 1
+    sleep 0.5
+  done
+}
+browser=$(command -v chromium google-chrome google-chrome-stable chromium-browser 2>/dev/null | head -n 1 || true)
+if [[ -z $browser ]]; then
+  say "skipped: no Chromium or Chrome on this machine. In a browser, $NGINX/app/admin.html shows Live after signing in"
+else
+  # A snap browser can only write inside its own folder
+  if [[ $(readlink -f "$browser") == */snap ]] || grep -qs '/snap/' "$browser"; then
+    PROFILE=$HOME/snap/chromium/common/$PREFIX-profile
+  else
+    PROFILE=$WORK/browser-profile
+  fi
+  rm -rf "$PROFILE"
+  lines_before=$(access_log | wc -l)
+  "$browser" --headless=new --disable-gpu --no-first-run --no-default-browser-check --user-data-dir="$PROFILE" \
+    "$NGINX/app/checks/live.html#email=admin%40shop.local&password=Admin123%21" >/dev/null 2>&1 &
+  BROWSER=$!
+  since_browser() { access_log | tail -n +"$((lines_before + 1))"; }
+  page_live() { since_browser | grep -q 'batch=state&i=1&result=live'; }
+  wait_for "the page's ten connections and its open one" 120 page_live
+  results=$(since_browser | grep -F 'batch=connect&' | sed -nE 's/.*result=([^ ]*) HTTP.*/\1/p')
+  say "10 page loads with connectLive: $(grep -c '^live$' <<<"$results" || true) of 10 live;" \
+    "negotiate requests: $(since_browser | grep -c '/negotiate' || true)"
+
+  # Nothing outside shows which instance holds the page's WebSocket: Nginx 1.29.7 and later keep idle connections to
+  # every instance open as well. So the instances stop one at a time, each started again, until the page notices
+  dropped() { since_browser | grep -q 'batch=state&i=2&'; }
+  host=""
+  for n in 1 2 3; do
+    stopped_at=$(date +%s%N)
+    docker stop -t 30 "$PREFIX-api$n" >/dev/null
+    if within 5 dropped; then
+      host=api$n
+      break
+    fi
+    restart=$(date +%s)
+    docker start "$PREFIX-api$n" >/dev/null
+    wait_for "api$n to start again" 60 listening "$n" "$restart"
+  done
+  [[ -n $host ]] || fail "the page didn't notice any instance stopping"
+  settled() { since_browser | grep -q -E 'batch=state&i=3&|result=offline'; }
+  wait_for "the page to reconnect" 60 settled
+  took=$(seconds_since "$stopped_at")
+  # In the page's order (i): a report sent while an instance was stopping can reach the log after a later one
+  states=$(since_browser | sed -nE 's/.*batch=state&i=([0-9]+)&result=([^ ]*) HTTP.*/\1 \2/p' | sort -n | cut -d' ' -f2 |
+    paste -sd ' ')
+  [[ $states == "live reconnecting live" ]] || fail "the page went: $states"
+  reloaded() { since_browser | grep -q -F 'batch=reload&'; }
+  wait_for "the page to reload its orders" 30 reloaded
+  reload=$(since_browser | grep -F 'batch=reload&' | sed -nE 's/.*" ([0-9]{3}) upstream=.*/\1/p' | tail -n 1)
+  say "stopping the instances one at a time: the page's WebSocket dropped when $host stopped"
+  say "the page went $states, back within $took s of docker stop $host, through Nginx to another instance"
+  say "then it reloaded its orders, as onReconnected does on the admin page: GET /api/v1/orders $reload"
+fi

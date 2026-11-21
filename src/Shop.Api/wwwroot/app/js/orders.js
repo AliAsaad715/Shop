@@ -153,7 +153,7 @@ async function start() {
     });
     await Promise.all([loadOrders(), loadProducts()]);
   } catch (error) {
-    if ((error.status ?? error.statusCode) === 401) return signOut("Your session has ended. Sign in again.");
+    if (error.status === 401) return signOut("Your session has ended. Sign in again.");
     page.notice.textContent = `Can't load your orders: ${describe(error)}`;
   }
 }
