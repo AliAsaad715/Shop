@@ -209,10 +209,12 @@ echo "Step \"$label\" at $commit: $RUNS run$([[ $RUNS -eq 1 ]] || echo s) at $ra
 docker rm -f "$K6_CONTAINER" >/dev/null 2>&1 || true # left behind by a run that crashed
 perf/snapshot.sh restore
 
-api=${API_URL:-http://localhost:$(docker compose port api 8080 | sed 's/.*://')}
+# Through Nginx, as real traffic arrives: it spreads the load over api1-api3 (task R5-03)
+api=${API_URL:-http://localhost:$(docker compose port nginx 80 | sed 's/.*://')}
 cores=$(docker info --format '{{.NCPU}}')
 snapshot=$(app_sql -c "SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = current_database() || '_snapshot'")
-# Container names to compose services, so the results say "api" rather than "shop-api-1"
+# Container names to compose services, so the results say "api1" rather than "shop-api1-1". The three workers share one
+# name, so their CPU is the average of the three
 names=$(docker compose --profile replica ps --format json | jq -s --arg k6 "$K6_CONTAINER" 'flatten | map({(.Name): .Service}) | add + {($k6): "k6"}')
 
 k6_env=(-e "API_URL=$api" -e "RATE=$rate" -e "LABEL=$label" -e "COMMIT=$commit" -e "RESULTS_DIR=$dir")

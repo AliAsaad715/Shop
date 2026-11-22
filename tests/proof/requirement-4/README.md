@@ -25,7 +25,7 @@ The scripts need Docker, `curl` and `jq`. Run them from anywhere; they find the 
 
    ```sh
    curl -s -u shop:shop localhost:15672/api/queues/%2F/email.order-confirmation | jq '.arguments."x-delivery-limit"'
-   docker compose stop api            # nothing new is published
+   docker compose stop api1 api2 api3 # nothing new is published
    # wait until the RabbitMQ UI shows email.order-confirmation with 0 messages, then:
    docker compose stop worker
    docker compose exec rabbitmq rabbitmqctl delete_queue email.order-confirmation --if-empty --if-unused
@@ -37,7 +37,7 @@ The scripts need Docker, `curl` and `jq`. Run them from anywhere; they find the 
 2. Build the API and the worker from this code, then start everything:
 
    ```sh
-   docker compose build api worker
+   docker compose build api1 worker   # api1 builds the image all three API instances use
    docker compose up -d --wait
    ```
 

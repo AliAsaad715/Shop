@@ -130,11 +130,11 @@ run() {
     if [[ $label == after-replica ]]; then
       docker compose --profile replica up -d --no-build --wait db-replica
       READ_ROUTING_ENABLED=true docker compose up -d --no-build --wait
-      READ_ROUTING_ENABLED=true docker compose up -d --no-build --no-deps --force-recreate --wait api
+      READ_ROUTING_ENABLED=true docker compose up -d --no-build --no-deps --force-recreate --wait api1 api2 api3
     else
       docker compose --profile replica stop db-replica
       READ_ROUTING_ENABLED=false docker compose up -d --no-build --wait
-      READ_ROUTING_ENABLED=false docker compose up -d --no-build --no-deps --force-recreate --wait api
+      READ_ROUTING_ENABLED=false docker compose up -d --no-build --no-deps --force-recreate --wait api1 api2 api3
     fi
 
     RUNS=$KEEP COMMIT=$commit perf/run.sh "$label" "$rate" || true
@@ -146,7 +146,7 @@ run() {
 
   # Back to the default stack: today's app, with routing as .env says, and no replica
   docker compose --profile replica stop db-replica
-  docker compose up -d --no-build --no-deps --force-recreate --wait api
+  docker compose up -d --no-build --no-deps --force-recreate --wait api1 api2 api3
 
   echo
   LABELS=$(IFS=,; echo "${labels[*]}") perf/compare.sh

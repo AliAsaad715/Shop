@@ -15,7 +15,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 DATABASES=(postgres inventory-db) # the compose services whose POSTGRES_DB is saved
-CLIENTS=(inventory api)           # the services connected to them, in the order they start
+CLIENTS=(inventory api1 api2 api3) # the services connected to them, in the order they start
 REDIS_SERVICE=${REDIS_SERVICE:-redis}
 REPLICA_SERVICE=${REPLICA_SERVICE:-db-replica}
 
@@ -73,9 +73,9 @@ restart_after_failure() {
   docker compose --progress quiet start "${CLIENTS[@]}" || true
 }
 
-# Starts the warehouse, then the app, and waits until both answer
+# Starts the warehouse, then the app's three instances, and waits until all of them answer
 start_clients() {
-  local id state url
+  local id state healthy
   docker compose --progress quiet start inventory
   id=$(docker compose ps -q inventory)
   # The health status, or plain "running" for an image without a healthcheck
@@ -86,17 +86,23 @@ start_clients() {
   done
   [[ $state == healthy || $state == running ]] || { echo "inventory isn't healthy after 60 s" >&2; exit 1; }
 
-  docker compose --progress quiet start api
-  url=${API_URL:-http://localhost:$(docker compose port api 8080 | sed 's/.*://')}
+  docker compose --progress quiet start api1 api2 api3
+  # Each instance's own healthcheck (task R5-03): through Nginx, /health answers as soon as any one of them is up
   for _ in $(seq 60); do
-    if curl -fsS -o /dev/null "$url/health" 2>/dev/null; then
+    healthy=0
+    for id in $(docker compose ps -q api1 api2 api3); do
+      if [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$id") == healthy ]]; then
+        healthy=$((healthy + 1))
+      fi
+    done
+    if [[ $healthy == 3 ]]; then
       trap - EXIT
-      echo "The api and the warehouse are back"
+      echo "The api's three instances and the warehouse are back"
       return 0
     fi
     sleep 1
   done
-  echo "The api doesn't answer $url/health after 60 s" >&2
+  echo "Only $healthy of the api's three instances are healthy after 60 s" >&2
   exit 1
 }
 

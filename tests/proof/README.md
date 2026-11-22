@@ -71,7 +71,7 @@ that order timed out too, so it waits in `orders.pending_releases` until the war
 ```sh
 docker compose up -d --wait inventory    # INVENTORY_DELAY_MS back to 0
 order                                    # 201 again, if X has stock left
-docker compose logs api inventory | grep <order id>
+docker compose logs api1 api2 api3 inventory | grep <order id>
 ```
 
 Both services log each call with the same order ID: the app as `Reserved stock for order <id>`, the warehouse

@@ -4,7 +4,8 @@ using Shop.SharedKernel.Persistence;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-builder.Services.AddShopMessaging("shop-worker");
+// Named after the host, a container ID under Compose, so RabbitMQ's UI tells several workers apart (task R5-03)
+builder.Services.AddShopMessaging($"shop-worker {Environment.MachineName}");
 builder.Services.AddNotificationsWorker();
 
 var host = builder.Build();
