@@ -9,7 +9,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-API=${API_URL:-http://localhost:$(docker compose port api 8080 | sed 's/.*://')}
+API=${API_URL:-http://localhost:$(docker compose port nginx 80 | sed 's/.*://')}
 setting() { grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d= -f2- || true; }
 email=${ADMIN_EMAIL:-$(setting ADMIN_EMAIL)}
 password=${ADMIN_PASSWORD:-$(setting ADMIN_PASSWORD)}

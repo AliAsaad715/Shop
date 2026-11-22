@@ -1,4 +1,5 @@
 using Shop.Api.Docs;
+using Shop.Api.Instances;
 using Shop.Api.LivePages;
 using Shop.Api.Routing;
 using Shop.Api.Security;
@@ -14,14 +15,18 @@ using Shop.SharedKernel.Persistence;
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
 
+// api1, api2 or api3 when Compose runs three instances behind Nginx (task R5-03); null otherwise
+var instanceName = InstanceName.From(builder.Configuration);
+
 builder.Services
     .AddUsersModule()
     .AddProductsModule()
     .AddOrdersModule()
     .AddNotificationsModule();
 
-// RabbitMQ (task R4-01): connects in the background and declares the topology; Degraded while it's down
-builder.Services.AddShopMessaging("shop-api");
+// RabbitMQ (task R4-01): connects in the background and declares the topology; Degraded while it's down. Each instance
+// names its connection, so RabbitMQ's UI tells the three apart (R5-03)
+builder.Services.AddShopMessaging(instanceName is null ? "shop-api" : $"shop-api {instanceName}");
 
 builder.Services.AddErrorContract();
 builder.Services.AddVersionedApiDocs();
@@ -32,6 +37,9 @@ var app = builder.Build();
 
 // Every module's schema is current before the first request
 await app.MigrateModuleDatabasesAsync();
+
+// First, so every response says which instance answered, errors included (task R5-03)
+app.UseInstanceHeader(instanceName);
 
 // Unhandled exceptions and bare status codes (unknown route, missing token, rate limit) become Problem Details too
 if (!app.Environment.IsDevelopment())

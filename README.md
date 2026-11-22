@@ -15,7 +15,8 @@ to the base64 encoding of at least 32 random bytes. Generate it in PowerShell 7:
 ```
 
 Run `docker compose up --build`. The local HTTP demo is available at
-`http://localhost:8080/docs`. Keep `.env`, signing keys and certificates out of Git.
+`http://localhost:8080/docs`, through Nginx in front of three API instances (task R5-03). Keep `.env`, signing keys
+and certificates out of Git.
 
 For local HTTPS, start PostgreSQL with `docker compose up -d postgres`, configure a trusted
 .NET development certificate with `dotnet dev-certs https --trust`, and run:
@@ -39,7 +40,7 @@ and no eval. `/docs` permits Scalar's local scripts, inline initialization and s
 
 CORS permits only explicitly configured frontend origins. Development defaults to
 `http://localhost:5173`. For Compose, change `FRONTEND_ORIGIN` in `.env`, then run
-`docker compose up -d api`. For a direct API run, configure `Cors:AllowedOrigins` or:
+`docker compose up -d api1 api2 api3`. For a direct API run, configure `Cors:AllowedOrigins` or:
 
 ```powershell
 $env:Cors__AllowedOrigins__0 = 'http://localhost:5173'
@@ -605,7 +606,7 @@ before starting the updated API and worker against an existing broker.
 
 ```sh
 docker compose up -d --wait rabbitmq
-docker compose up -d --build api          # then open http://localhost:15672 > Queues and Streams
+docker compose up -d --build api1 api2 api3 # then open http://localhost:15672 > Queues and Streams
 curl -s localhost:8080/health             # Healthy, or Degraded while RabbitMQ or the warehouse is down
 docker compose stop rabbitmq              # the API keeps serving; /health turns Degraded
 docker compose start rabbitmq             # the API reconnects on its own within a few seconds
@@ -995,7 +996,7 @@ server.
 The queue created before R4-09 has `x-delivery-limit=5` (six total deliveries). The updated hosts declare
 `x-delivery-limit=4` (five total deliveries). Upgrade the development queue before starting the new hosts:
 
-1. Stop the **old API** with `docker compose stop api`, so no relay publishes new messages.
+1. Stop the **old API** with `docker compose stop api1 api2 api3`, so no relay publishes new messages.
 2. Keep the **old worker** running until the email queue drains, then stop it with `docker compose stop worker`.
 3. In the RabbitMQ management UI, verify that `email.order-confirmation` has `messages_ready=0`,
    `messages_unacknowledged=0` and `consumers=0`. If any is nonzero, stop the upgrade and handle those messages first.
@@ -1005,7 +1006,7 @@ The queue created before R4-09 has `x-delivery-limit=5` (six total deliveries). 
    docker compose exec rabbitmq rabbitmqctl delete_queue email.order-confirmation --if-empty --if-unused
    ```
 
-5. Start the updated hosts together with `docker compose up -d --build api worker`. Check that the queue is quorum
+5. Start the updated hosts together with `docker compose up -d --build api1 api2 api3 worker`. Check that the queue is quorum
    with `x-delivery-limit=4`, its DLX is `shop.dlx`, and both hosts connect successfully.
 
 Keep `email.order-confirmation.dlq` and the RabbitMQ volume. This preserves dead letters and database outbox rows.
@@ -1101,8 +1102,8 @@ several instances at once.
 [`deploy/nginx/default.conf`](deploy/nginx/default.conf) is the load balancer that R5-03 puts in front of api1–api3:
 `least_conn` over a shared `zone`, `resolve` so a changed or new address is picked up without a reload, passive health
 checks (`max_fails=1 fail_timeout=10s`), WebSocket upgrades under `/hubs/`, and an `upstreams` access log that names
-the instance behind each request. Compose doesn't use it yet; its checks run it in front of three API containers on a
-throwaway network, and CI runs `nginx -t` on every change to it:
+the instance behind each request. Compose runs it in front of api1–api3 since R5-03; its checks run it in front of
+three API containers on a throwaway network, and CI runs `nginx -t` on every change to it:
 
 ```sh
 tests/proof/requirement-5/nginx-checks.sh   # about two minutes; Docker, .NET SDK, curl, jq, nginx:1.30.7-alpine
@@ -1160,6 +1161,41 @@ instance; the next comes 2 seconds later), then reloaded its orders.
 Found while testing: since Nginx 1.29.7, Nginx keeps idle connections to each instance open for the next request
 (keepalive is on by default, over HTTP/1.1), where the plan's 1.28 closed every one. Nginx drops an idle connection
 after 60 seconds, before Kestrel would after 130; the config now says so.
+
+## Three API instances behind Nginx (task R5-03)
+
+`docker compose up` runs the API three times, as `api1`, `api2` and `api3`, from one `x-api` anchor in
+[`compose.yaml`](compose.yaml), with Nginx in front (R5-02's config). Nginx is the only way in: it answers at
+`http://localhost:8080` (`API_PORT`), and no instance publishes a port. The email worker runs three times too, and
+RabbitMQ gives each message to one of them; `docker compose stop worker` stops all three.
+
+- Every response carries `X-Instance`, errors included, so `curl -i` or a load test sees which instance answered. It
+  comes from `INSTANCE_NAME`, which Compose sets per instance, and also names each instance's RabbitMQ connection
+  (`shop-api api2`); a worker names its connection after its container. Compose already starts each log line with the
+  container's name, such as `api2-1`.
+- `api1` starts first, and the other two wait for its healthcheck: on an empty database it applies the migrations and
+  seeds alone, so the instances never race (local-state audit, finding 1). R5-04's migrator will take that work over.
+  The healthcheck asks `/health` with bash, as the image has no curl. The workers start together: each applies the
+  notifications schema, whose single migration EF Core's lock keeps safe.
+- The three instances share the `images` volume, so an upload through one is found by all, as long as they share a
+  machine (finding 4; R5-07 moves images to object storage).
+- k6 (`perf/run.sh`), the perf proofs and the Requirement 4 proof kit reach the API through Nginx; commands that named
+  the `api` service now name `api1 api2 api3`. YAML merges are shallow, so each instance merges the shared environment
+  and dependencies before adding its own.
+
+The checks start the whole stack as a separate Compose project, on empty volumes and other ports, so the stack you run
+is never touched:
+
+```sh
+tests/proof/requirement-5/compose-checks.sh   # about two minutes; Docker, .NET SDK, curl, jq, a .env with JWT_SIGNING_KEY
+```
+
+In the [saved run](tests/proof/requirement-5/results), everything was healthy after 17 s; api2 and api3 started 5 s
+after api1, and only api1 applied migrations or seeded. 300 requests through Nginx split 100/100/100 by `X-Instance`,
+and k6 with 10 users for 10 s got 10,504, 10,306 and 10,501 answers with no failures. An order placed through Nginx
+returned 201, and one of the three workers sent its email.
+
+An existing stack still has the old `api` container: `docker compose up -d --build --remove-orphans` removes it.
 
 ## Verify
 

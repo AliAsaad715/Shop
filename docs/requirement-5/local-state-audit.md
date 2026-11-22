@@ -271,7 +271,8 @@ transaction stays open during the warehouse call. It could join R5-11 or become 
 - **R5-03.** Every API instance connects to RabbitMQ with the same name, `shop-api`
   ([`Program.cs:24`](../../src/Shop.Api/Program.cs#L24)); add `INSTANCE_NAME` so the RabbitMQ UI tells them apart.
   The `api` service has no restart policy, so a crashed instance stays down; a restart policy would also hide
-  finding 1, so add it after R5-04.
+  finding 1, so add it after R5-04. Done in R5-03: the connections are named `shop-api api1` to `api3`, and `api1`
+  starts before the other two, so they don't race on an empty database; the restart policy is still to decide.
 - **R5-04.** Once the migrator exists, check 1 has to start it first; its "after" is three instances that start
   without migrating or seeding.
 - **R5-11.** The email worker's prefetch is 5 today

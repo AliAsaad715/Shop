@@ -10,13 +10,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-API=${API_URL:-http://localhost:$(docker compose port api 8080 | sed 's/.*://')}
+API=${API_URL:-http://localhost:$(docker compose port nginx 80 | sed 's/.*://')}
 email=${CUSTOMER_EMAIL:-customer100@shop.test}
 password=${CUSTOMER_PASSWORD:-Shopper123!}
 
 restore() {
   docker compose --profile replica up -d --no-build --wait db-replica >/dev/null 2>&1
-  docker compose up -d --no-build --no-deps --force-recreate --wait api >/dev/null 2>&1
+  docker compose up -d --no-build --no-deps --force-recreate --wait api1 api2 api3 >/dev/null 2>&1
 }
 trap restore EXIT
 
@@ -40,7 +40,7 @@ since() { echo "$(date +%s.%N) - $1" | bc | awk '{ printf "%.2f", $1 }'; }
 
 echo "The replica replays every change 5 s late, and the api sends a customer's reads to the primary for a while after they write"
 REPLICA_APPLY_DELAY=5s docker compose --profile replica up -d --no-build --force-recreate --wait db-replica >/dev/null 2>&1
-READ_ROUTING_ENABLED=true docker compose up -d --no-build --no-deps --force-recreate --wait api >/dev/null 2>&1
+READ_ROUTING_ENABLED=true docker compose up -d --no-build --no-deps --force-recreate --wait api1 api2 api3 >/dev/null 2>&1
 healthy
 echo "replica apply delay: $(docker compose --profile replica exec -T db-replica sh -c \
   'psql -X -q -At -U "$POSTGRES_USER" -d postgres -c "SHOW recovery_min_apply_delay"')"

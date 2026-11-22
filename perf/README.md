@@ -262,7 +262,7 @@ customers and some typical ones in `CUSTOMER_EMAILS`; `run.sh` does that for you
 customers whose order lists start empty. That's fine for trying the script, and the results say so.
 
 The API allows 5 logins a minute from one address, so setup waits a minute for every five customers past the first
-five. Set `LOGIN_RATE_LIMIT_PERMIT_LIMIT=1000` in `.env` and run `docker compose up -d api` to skip the wait. Tokens
+five. Set `LOGIN_RATE_LIMIT_PERMIT_LIMIT=1000` in `.env` and run `docker compose up -d api1 api2 api3` to skip the wait. Tokens
 last 15 minutes, and setup stops if they would expire before the run ends.
 
 ### Results

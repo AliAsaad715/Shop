@@ -39,14 +39,14 @@ setting() {
   printf '%s' "${value:-$fallback}"
 }
 
-for service in api rabbitmq mailpit postgres; do
+for service in nginx api1 api2 api3 rabbitmq mailpit postgres; do
   docker compose ps --status running --services | grep -qx "$service" ||
     fail "The $service service isn't running. Start the stack first: docker compose up -d --wait"
 done
 
-# Where Compose published each service, so another port or project name works too
+# Where Compose published each service, so another port or project name works too. The API is behind Nginx (R5-03)
 published() { echo "http://localhost:$(docker compose port "$1" "$2" | sed 's/.*://')"; }
-API=${API_URL:-$(published api 8080)}
+API=${API_URL:-$(published nginx 80)}
 RABBIT=${RABBITMQ_UI_URL:-$(published rabbitmq 15672)}
 MAILPIT=${MAILPIT_URL:-$(published mailpit 8025)}
 RABBIT_AUTH="$(setting RABBITMQ_USER shop):$(setting RABBITMQ_PASSWORD shop)"
