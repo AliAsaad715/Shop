@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The Compose layout's checks (task R5-03): `docker compose up` with three API instances behind Nginx and three email
-# workers, started on empty volumes, then looked at through Nginx as a client would.
+# workers, started on empty volumes, then looked at through Nginx as a client would. R5-04 also checks that a failed
+# migrator blocks them, succeeds on retry, and is the only service that initializes the database.
 #
 #   tests/proof/requirement-5/compose-checks.sh
 #
@@ -19,6 +20,8 @@ readonly WORK
 export COMPOSE_PROJECT_NAME=$PROJECT COMPOSE_FILE="$PWD/compose.yaml:$WORK/override.yaml"
 export API_PORT=58180 POSTGRES_PORT=55433 REDIS_PORT=56380 RABBITMQ_PORT=55672 RABBITMQ_UI_PORT=55673 \
   MAILPIT_UI_PORT=58025 MAILPIT_SMTP_PORT=51025 REPLICA_PORT=55434
+# The proof requires the demo catalog and must always capture mail locally, regardless of the developer's .env.
+export DEMO_SEED_ENABLED=true EMAIL_PROVIDER=Mailpit
 readonly NGINX=http://localhost:$API_PORT RABBIT=http://localhost:$RABBITMQ_UI_PORT MAILPIT=http://localhost:$MAILPIT_UI_PORT
 readonly PRODUCT=019a2180-0000-7000-8000-000000000202 # Cotton T-Shirt; the warehouse seed stocks 100
 
@@ -42,8 +45,6 @@ setting() {
   printf '%s' "${value:-$fallback}"
 }
 
-started_at() { docker inspect -f '{{.State.StartedAt}}' "$(docker compose ps -q "$1")"; }
-seconds_between() { awk -v a="$(date -d "$1" +%s.%N)" -v b="$(date -d "$2" +%s.%N)" 'BEGIN { printf "%.1f", b - a }'; }
 instance_of() { curl -s -D - -o /dev/null "$@" | tr -d '\r' | sed -n 's/^[Xx]-[Ii]nstance: //p'; }
 
 cleanup() {
@@ -79,6 +80,7 @@ printf '%s\n' 'FROM mcr.microsoft.com/dotnet/aspnet:10.0' 'WORKDIR /app' 'COPY .
   'ENTRYPOINT ["dotnet", "Shop.Worker.dll"]' | docker build -q -t "$PROJECT-worker" -f - "$WORK/Worker" >/dev/null
 cat >"$WORK/override.yaml" <<EOF
 services:
+  migrator: { image: $PROJECT-api }
   api1: { image: $PROJECT-api }
   api2: { image: $PROJECT-api }
   api3: { image: $PROJECT-api }
@@ -87,7 +89,21 @@ services:
 EOF
 say "built the API's and the worker's images from dotnet publish; project $PROJECT, Nginx on $NGINX"
 
-step "1. docker compose up on empty volumes"
+step "0. A failed migrator blocks API instances and workers on empty volumes (R5-04)"
+if ADMIN_PASSWORD=weak docker compose up -d --no-build api1 api2 api3 worker >"$WORK/failed-up.log" 2>&1; then
+  fail "Compose started despite a weak admin seed password"
+fi
+migrator=$(docker compose ps -a -q migrator)
+[[ -n $migrator && $(docker inspect -f '{{.State.ExitCode}}' "$migrator") == 1 ]] ||
+  fail "the migrator did not exit with code 1"
+for service in api1 api2 api3 worker; do
+  for id in $(docker compose ps -a -q "$service"); do
+    [[ $(docker inspect -f '{{.State.Running}}' "$id") == false ]] || fail "$service started despite failed initialization"
+  done
+done
+say "migrator exited 1; none of the three API instances or three workers started"
+
+step "1. Correct the password and retry on the same database"
 started=$SECONDS
 docker compose up -d --no-build --wait >"$WORK/up.log" 2>&1 || { tail -n 20 "$WORK/up.log" >&2; fail "docker compose up failed"; }
 say "every service up and healthy after $((SECONDS - started)) s:"
@@ -105,19 +121,40 @@ docker compose ps --format '{{.Service}}|{{.Status}}|{{.Ports}}' | awk -F'|' '{
 published=$(docker compose ps --format '{{.Service}} {{.Ports}}' | grep -- '->' | awk '{ print $1 }' | sort -u | paste -sd ' ')
 [[ ! " $published " =~ \ api[123]\  ]] || fail "an API instance publishes a port: $published"
 say "services publishing a port: $published; none of api1-api3"
-api1=$(started_at api1)
-say "api2 started $(seconds_between "$api1" "$(started_at api2)") s and api3 $(seconds_between "$api1" "$(started_at api3)") s after api1:" \
-  "they wait until api1 is healthy"
+migrator=$(docker compose ps -a -q migrator)
+[[ $(docker inspect -f '{{.State.ExitCode}}' "$migrator") == 0 ]] || fail "migrator did not succeed"
+finished=$(docker inspect -f '{{.State.FinishedAt}}' "$migrator")
+for service in api1 api2 api3 worker; do
+  for id in $(docker compose ps -q "$service"); do
+    beginning=$(docker inspect -f '{{.State.StartedAt}}' "$id")
+    [[ "$finished" < "$beginning" || "$finished" == "$beginning" ]] || fail "$service started before migrator finished"
+  done
+done
+say "migrator exited 0 before every API instance and worker started; api2/api3 no longer wait for api1"
 
-step "2. Only api1 migrated and seeded"
-for service in api1 api2 api3; do
+step "2. Only migrator initializes; runtime hosts never migrate or seed"
+docker compose logs --no-log-prefix migrator >"$WORK/migrator.log" 2>&1
+grep -q 'Database initialization completed' "$WORK/migrator.log" || fail "no successful initialization log"
+for service in api1 api2 api3 worker; do
   logs=$(docker compose logs --no-log-prefix "$service" 2>&1)
+  ! grep -q -E 'Applying migration|No migrations were applied|Running module seeder|Seeded admin account|Seeded [0-9]+ demo products|Demo catalog already present' \
+    <<<"$logs" || fail "$service migrated or seeded at startup"
   say "$service: $(grep -c 'Applying migration' <<<"$logs" || true) migrations applied," \
     "$(grep -c -E 'Seeded admin account|Seeded [0-9]+ demo products' <<<"$logs" || true) seeding steps," \
     "$(grep -c 'Unhandled exception' <<<"$logs" || true) crashes"
 done
 say "worker restarts: $(for id in $(docker compose ps -q worker); do docker inspect -f '{{.RestartCount}}' "$id"; done | paste -sd ' ')" \
-  "(each migrates the notifications schema; EF Core's lock covers its one migration)"
+  "(notifications schema prepared by migrator)"
+[[ $(curl -s -L -o /dev/null -w '%{http_code}' "$NGINX/docs") == 200 ]] || fail "/docs is unavailable"
+image_path=$(docker compose exec -T postgres psql -X -q -At -U "$(setting POSTGRES_USER shop)" -d "$(setting POSTGRES_DB shop)" \
+  -c "SELECT image_path FROM products.products WHERE id='$PRODUCT'")
+for service in api1 api2 api3; do
+  # The image has bash, not curl. Ask each instance internally, without publishing any API port.
+  docker compose exec -T "$service" bash -c \
+    "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET /images/$image_path HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; timeout 3 head -n 1 <&3 | grep -q ' 200 '" ||
+    fail "demo image is unavailable on $service"
+done
+say "demo image is available on api1/api2/api3 through the shared images volume; /docs returns 200 after its redirect"
 
 step "3. X-Instance through Nginx"
 say "GET /health: X-Instance $(instance_of "$NGINX/health"); a 404: X-Instance $(instance_of "$NGINX/api/v1/missing")"
@@ -138,8 +175,10 @@ token=$(curl -s -H 'Content-Type: application/json' -d "$credentials" "$NGINX/ap
 status=$(curl -s -D "$WORK/order.headers" -o "$WORK/order.json" -w '%{http_code}' -H "Authorization: Bearer $token" \
   -H 'Content-Type: application/json' -d "{\"lines\":[{\"productId\":\"$PRODUCT\",\"quantity\":1}]}" "$NGINX/api/v1/orders")
 order=$(jq -r .id "$WORK/order.json")
+[[ $status == 201 ]] || fail "order creation returned $status"
 emailed() { [[ $(curl -s "$MAILPIT/api/v1/search?query=to:$customer" | jq -r '.messages_count // 0') -gt 0 ]]; }
 for _ in $(seq 60); do emailed && break; sleep 0.5; done
+emailed || fail "the confirmation email never arrived"
 say "POST /api/v1/orders: $status from $(tr -d '\r' <"$WORK/order.headers" | sed -n 's/^[Xx]-[Ii]nstance: //p');" \
   "its email sent by $(docker compose logs worker 2>&1 | grep "Sent the confirmation for order $order" | awk '{ print $1 }' | head -n 1)"
 if docker image inspect grafana/k6:2.3.0 >/dev/null 2>&1; then
@@ -162,8 +201,9 @@ export default function () {
 }
 EOF
   # As this user, like perf/run.sh: the work folder is private to it
-  docker run --rm --network host -u "$(id -u):$(id -g)" -e "API_URL=$NGINX" -v "$WORK:/scripts:ro" grafana/k6:2.3.0 \
-    run --quiet /scripts/k6.js >"$WORK/k6.txt" 2>&1 || true
+  docker run --rm --network "${PROJECT}_default" -u "$(id -u):$(id -g)" -e API_URL=http://nginx \
+    -v "$WORK:/scripts:ro" grafana/k6:2.3.0 run --quiet /scripts/k6.js >"$WORK/k6.txt" 2>&1 ||
+    { cat "$WORK/k6.txt" >&2; fail "k6 failed"; }
   counts=$(grep -A1 'answered_by{instance' "$WORK/k6.txt" | sed -n 's/.*count=\([0-9]*\).*/\1/p' | paste -sd ' ')
   [[ $(wc -w <<<"$counts") == 3 ]] || fail "k6 counted no answers: $(head -n 3 "$WORK/k6.txt")"
   say "k6, 10 users for 10 s through Nginx (as perf/run.sh points it):" \
@@ -172,3 +212,15 @@ EOF
 else
   say "k6: skipped, no grafana/k6:2.3.0 image here"
 fi
+
+step "6. Explicit initialization is repeatable; restarting runtime hosts never initializes"
+docker compose run --rm --no-deps migrator >"$WORK/repeated-migrator.log" 2>&1 || fail "repeated initialization failed"
+grep -q 'Demo catalog already present' "$WORK/repeated-migrator.log" || fail "demo catalog was not preserved"
+initial_started=$(docker inspect -f '{{.State.StartedAt}}' "$migrator")
+docker compose restart api1 api2 api3 worker >"$WORK/restart.log" 2>&1
+docker compose up -d --no-build --no-deps --wait api1 api2 api3 worker >>"$WORK/restart.log" 2>&1 || fail "runtime restart failed"
+[[ $(docker inspect -f '{{.State.StartedAt}}' "$migrator") == "$initial_started" ]] || fail "runtime restart reran migrator"
+! docker compose logs --no-log-prefix api1 api2 api3 worker 2>&1 |
+  grep -q -E 'Applying migration|No migrations were applied|Running module seeder|Seeded admin account|Seeded [0-9]+ demo products|Demo catalog already present' ||
+  fail "a runtime host migrated or seeded after restarting"
+say "explicit rerun preserved the catalog; all six runtime hosts restarted without initialization"

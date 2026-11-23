@@ -5,7 +5,9 @@ using Microsoft.Extensions.Hosting;
 using Npgsql;
 using Shop.Modules.Users.Data;
 using Shop.Modules.Users.Domain;
+using Shop.Modules.Users.Seeding;
 using Shop.SharedKernel.Auth;
+using Shop.SharedKernel.Persistence;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -17,7 +19,7 @@ public sealed class UsersIdentityTests
     private const string AdminPassword = "Admin123!";
 
     [Fact]
-    public async Task MigrationSeedsRolesAndStartupSeedsOneAdmin()
+    public async Task MigrationSeedsRolesAndExplicitSeedingAddsOneAdmin()
     {
         // An explicit connection must point to a disposable database: this test creates and changes users.
         var connectionString = Environment.GetEnvironmentVariable("SHOP_USERS_TEST_CONNECTION");
@@ -39,14 +41,16 @@ public sealed class UsersIdentityTests
 
             var roles = await context.Roles.Select(role => role.Name).OrderBy(name => name).ToListAsync();
             Assert.Equal(new[] { Roles.Admin, Roles.Customer }, roles);
+            Assert.Empty(await context.Users.ToListAsync());
         }
 
-        await StartHostedServicesAsync(services);
+        Assert.DoesNotContain(services.GetServices<IHostedService>(), service => service.GetType() == typeof(AdminSeeder));
+        await SeedAsync(services);
         await AssertSingleAdminAsync(services, AdminPassword);
 
-        // A restart with a different configured password neither duplicates the admin nor resets its password
+        // Explicit initialization with a different password neither duplicates the admin nor resets its password
         await using var restarted = UsersTestServices.Build(connectionString!, AdminEmail, "Different123!");
-        await StartHostedServicesAsync(restarted);
+        await SeedAsync(restarted);
         await AssertSingleAdminAsync(restarted, AdminPassword);
 
         // The unique index backs RequireUniqueEmail even when two registrations race past the check
@@ -66,11 +70,12 @@ public sealed class UsersIdentityTests
         }
     }
 
-    private static async Task StartHostedServicesAsync(IServiceProvider services)
+    private static async Task SeedAsync(IServiceProvider services)
     {
-        foreach (var hostedService in services.GetServices<IHostedService>())
+        await using var scope = services.CreateAsyncScope();
+        foreach (var seeder in scope.ServiceProvider.GetServices<IModuleSeeder>())
         {
-            await hostedService.StartAsync(CancellationToken.None);
+            await seeder.SeedAsync(CancellationToken.None);
         }
     }
 

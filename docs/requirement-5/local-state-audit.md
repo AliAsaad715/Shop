@@ -77,6 +77,15 @@ which fits PostgreSQL releasing a table lock when each migration's transaction c
 **Before → after.** Before: check 1 shows crashes. After: on an empty database, `docker compose up` shows one
 migrator log and three instances that start without migrating or seeding.
 
+**Implemented in R5-04.** `--migrate-and-seed` applies all four schemas, then explicitly runs the admin and demo
+seeders without starting the host. The migrator mounts the same images volume as the API. API instances and all
+three workers depend on its successful completion, and neither API nor worker migrates or seeds at startup,
+including in Development. Check 1 now runs the migrator before starting the three instances in every fresh-database
+round; the saved pre-fix logs above remain the historical baseline. `compose-checks.sh` also checks a failed seed
+blocks dependent hosts, retry succeeds on the same database, and runtime restarts do not initialize again.
+The [saved R5-04 run](../../tests/proof/requirement-5/results/local-state-checks-r5-04-20261123.txt) had **0 crashes
+out of 9 starts**, down from 6 of 9 before the fix. Other findings in that run remain for their own tasks.
+
 ### 2. The login rate limiter counts in memory
 
 **Where.** [`LoginRateLimitPolicy.cs:22`](../../src/Modules/Users/Shop.Modules.Users/Auth/LoginRateLimitPolicy.cs#L22)
@@ -272,9 +281,10 @@ transaction stays open during the warehouse call. It could join R5-11 or become 
   ([`Program.cs:24`](../../src/Shop.Api/Program.cs#L24)); add `INSTANCE_NAME` so the RabbitMQ UI tells them apart.
   The `api` service has no restart policy, so a crashed instance stays down; a restart policy would also hide
   finding 1, so add it after R5-04. Done in R5-03: the connections are named `shop-api api1` to `api3`, and `api1`
-  starts before the other two, so they don't race on an empty database; the restart policy is still to decide.
-- **R5-04.** Once the migrator exists, check 1 has to start it first; its "after" is three instances that start
-  without migrating or seeding.
+  originally started before the other two. R5-04 replaces that temporary ordering with the shared migrator;
+  the API restart policy is unchanged.
+- **R5-04.** Implemented, including the notifications schema and shared demo images. Check 1 initializes first;
+  its "after" is three instances that start without migrating or seeding.
 - **R5-11.** The email worker's prefetch is 5 today
   ([`NotificationsModule.cs:60`](../../src/Modules/Notifications/Shop.Modules.Notifications/NotificationsModule.cs#L60));
   the plan wants 1.

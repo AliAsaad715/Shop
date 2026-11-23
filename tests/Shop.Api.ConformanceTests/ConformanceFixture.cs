@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Shop.SharedKernel.Persistence;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -60,6 +61,14 @@ public sealed class ConformanceFixture : IAsyncLifetime
 
 internal sealed class ConformanceApiFactory(string connectionString) : WebApplicationFactory<global::Program>
 {
+    protected override IHost CreateHost(IHostBuilder builder)
+    {
+        var host = builder.Build();
+        host.InitializeModuleDatabasesAsync().GetAwaiter().GetResult();
+        host.Start();
+        return host;
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Production);

@@ -18,6 +18,8 @@ jobs:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
@@ -32,6 +34,21 @@ jobs:
         run: dotnet build Shop.slnx -m:1 -nr:false
 
       # Keep running the remaining suites after an individual failure, retaining the job's failed status.
+      - name: Users integration tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 10
+        run: dotnet test tests/Shop.Modules.Users.IntegrationTests --no-build -m:1 -nr:false --logger "trx;LogFileName=users.trx" --results-directory artifacts/test-results/r4-09
+
+      - name: Products integration tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 10
+        run: dotnet test tests/Shop.Modules.Products.IntegrationTests --no-build -m:1 -nr:false --logger "trx;LogFileName=products.trx" --results-directory artifacts/test-results/r4-09
+
+      - name: API conformance tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 10
+        run: dotnet test tests/Shop.Api.ConformanceTests --no-build -m:1 -nr:false --logger "trx;LogFileName=conformance.trx" --results-directory artifacts/test-results/r4-09
+
       - name: Messaging integration tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         timeout-minutes: 10

@@ -183,7 +183,7 @@ public sealed class CatalogCacheFixture : IAsyncLifetime
     {
         var seeder = new DemoProductSeeder(App.Services.GetRequiredService<IServiceScopeFactory>(),
             Options.Create(new DemoSeedOptions { Enabled = true }), App.Services.GetRequiredService<ILogger<DemoProductSeeder>>());
-        return seeder.StartAsync(CancellationToken.None);
+        return seeder.SeedAsync(CancellationToken.None);
     }
 
     public async Task<HttpResponseMessage> CreateAsync()

@@ -43,7 +43,7 @@ public static class ProductsModule
 
         // The demo catalog that matches the warehouse seed; off unless DemoSeed:Enabled is true
         services.AddOptions<DemoSeedOptions>().BindConfiguration(DemoSeedOptions.Section);
-        services.AddHostedService<DemoProductSeeder>();
+        services.AddScoped<IModuleSeeder, DemoProductSeeder>();
 
         // One scan registers every validator in the module, including product updates.
         services.AddValidatorsFromAssemblyContaining<CreateProductRequestValidator>(includeInternalTypes: true);

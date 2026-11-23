@@ -1,0 +1,36 @@
+R5-04 verification - 2026-11-23
+
+Build: dotnet build Shop.slnx -m:1 -nr:false --no-restore
+Result: succeeded with 0 warnings and 0 errors.
+
+Tests: full solution run, followed by final Users-suite and migrator reruns after changes.
+The Users assertion was narrowed to exclude AdminSeeder while allowing the framework DataProtectionHostedService.
+Final results: 660 test cases passed, 0 failed, 0 skipped; 6 migrator cases included.
+
+Suite                                      Passed
+API conformance                            75
+API integration (including 6 migrator cases) 95
+Architecture                               28
+Messaging integration                      31
+Notifications integration                  58
+Orders integration                         48
+Orders unit                                49
+Products integration                       153
+Products unit                              27
+Users integration                          67
+Users unit                                 29
+
+Final targeted commands:
+dotnet test tests/Shop.Api.IntegrationTests --no-build -m:1 -nr:false --filter FullyQualifiedName~MigratorTests
+dotnet test tests/Shop.Modules.Users.IntegrationTests --no-build -m:1 -nr:false
+
+Compose configuration: docker compose config --quiet passed.
+Whitespace: git diff --check passed.
+Bash syntax: all three requirement-5 proof scripts passed bash -n.
+
+Runtime proofs: compose-checks.sh, local-state-checks.sh and nginx-checks.sh exited 0.
+The Nginx proof browser-only step was skipped because Chromium/Chrome was unavailable.
+Proofs ran on Windows with Git Bash and local adapters for Docker host paths, native-dotnet image paths and curl form files.
+These adapters did not change application behavior; Linux/WSL can run the checked-in scripts directly.
+All proof services used isolated projects/networks/ports and disposable storage, never the shop stack.
+Existing audit findings for later R5 tasks remain visible in the local-state results.

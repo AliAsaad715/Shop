@@ -42,7 +42,7 @@ public static class NotificationsModule
     /// </summary>
     public static IServiceCollection AddNotificationsWorker(this IServiceCollection services)
     {
-        services.AddModuleDbContext<NotificationsDbContext>(NotificationsDbContext.Schema);
+        services.AddNotificationsPersistence();
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<ProcessedMessages>();
 
@@ -61,6 +61,10 @@ public static class NotificationsModule
         services.AddQueueConsumer<OrderConfirmationHandler>(ShopTopology.EmailQueue, prefetch: 5);
         return services;
     }
+
+    /// <summary>The module's database, shared by the explicit migrator and the email worker.</summary>
+    public static IServiceCollection AddNotificationsPersistence(this IServiceCollection services) =>
+        services.AddModuleDbContext<NotificationsDbContext>(NotificationsDbContext.Schema);
 
     public static IEndpointRouteBuilder MapNotificationsEndpoints(this IEndpointRouteBuilder endpoints)
     {

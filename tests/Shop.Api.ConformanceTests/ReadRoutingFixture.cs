@@ -16,6 +16,7 @@ using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 using Shop.Modules.Products.Contracts;
 using Shop.SharedKernel.Auth;
+using Shop.SharedKernel.Persistence;
 using StackExchange.Redis;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -58,7 +59,8 @@ public sealed class ReadRoutingFixture : IAsyncLifetime
         await Task.WhenAll(_primary.StartAsync(), _redis.StartAsync());
         _redisConnection = await ConnectionMultiplexer.ConnectAsync($"{_redis.Hostname}:{_redis.GetMappedPublicPort(6379)}");
         // Migrate all modules through the real application before copying its database.
-        await using (var bootstrap = Build(new() { ["ReadRouting:Enabled"] = "false" }, readConnection: PrimaryConnection))
+        await using (var bootstrap = Build(new() { ["ReadRouting:Enabled"] = "false" }, readConnection: PrimaryConnection,
+            initializeDatabase: true))
         using (var client = bootstrap.CreateClient()) { }
         await SqlAsync("""
             INSERT INTO products.products(id, name, description, price, image_path, category_id, created_at)
@@ -111,7 +113,8 @@ public sealed class ReadRoutingFixture : IAsyncLifetime
         return host.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://shop.test"), AllowAutoRedirect = false });
     }
 
-    private ReadRoutingApi Build(Dictionary<string, string?>? overrides, string? readConnection = null)
+    private ReadRoutingApi Build(Dictionary<string, string?>? overrides, string? readConnection = null,
+        bool initializeDatabase = false)
     {
         var read = new NpgsqlConnectionStringBuilder(PrimaryConnection)
         {
@@ -136,7 +139,7 @@ public sealed class ReadRoutingFixture : IAsyncLifetime
             ["RabbitMq:Host"] = "127.0.0.1", ["RabbitMq:Port"] = "1", ["RabbitMq:UserName"] = "shop", ["RabbitMq:Password"] = "shop",
         };
         if (overrides is not null) foreach (var setting in overrides) settings[setting.Key] = setting.Value;
-        return new ReadRoutingApi(settings);
+        return new ReadRoutingApi(settings, initializeDatabase);
     }
 
     public string Token(Guid user, string role) => new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
@@ -209,8 +212,17 @@ public sealed class ReadRoutingFixture : IAsyncLifetime
     }
 }
 
-internal sealed class ReadRoutingApi(Dictionary<string, string?> settings) : WebApplicationFactory<global::Program>
+internal sealed class ReadRoutingApi(Dictionary<string, string?> settings, bool initializeDatabase = false)
+    : WebApplicationFactory<global::Program>
 {
+    protected override IHost CreateHost(IHostBuilder builder)
+    {
+        var host = builder.Build();
+        if (initializeDatabase) host.InitializeModuleDatabasesAsync().GetAwaiter().GetResult();
+        host.Start();
+        return host;
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);

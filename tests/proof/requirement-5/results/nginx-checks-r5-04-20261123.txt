@@ -1,0 +1,46 @@
+== Setup
+   work folder: /tmp/shop-r5-nginx.qKjEDg
+   built the API image from dotnet publish
+   network shop-r5-nginx with Postgres and Redis
+   migrator initialized all schemas and demo images before any instance started (R5-04)
+
+== 1. The config: Nginx 1.30.7 accepts it while no instance exists yet
+   deploy/nginx/default.conf:    configuration file /etc/nginx/nginx.conf test is successful
+   the same without resolve:     configuration file /etc/nginx/nginx.conf test failed
+                                 host not found in upstream "api1:8080"
+
+== 2. resolve: Nginx starts with api1 and api2; api3 starts later and gets traffic without a reload
+   12 requests, api3 not started yet: api1 6, api2 6
+   api3 answered its first request 9.8 s after it started listening (a failed lookup is retried every 5 s: resolver_timeout)
+   Nginx's error log meanwhile: api3 could not be resolved (3: Host not found)
+
+== 3. least_conn spreads requests over the three instances; each request is logged once
+   300 requests one after another: api1 100, api2 100, api3 100
+   access-log lines for one request: 1
+   a line: [2026-11-23T14:28:09+00:00] 172.23.0.1 "GET /health?batch=once&i=1&marker=d3f62490bbe3 HTTP/1.1" 200 upstream=172.23.0.5:8080 upstream_status=200 time=0.001
+
+== 4. Headers: Host keeps the port; no Nginx version
+   OpenAPI servers through Nginx: [{"url":"http://127.0.0.1:58080/"}]
+   Server header: Server: nginx
+
+== 5. Request size: product images up to 2 MB get through to the API
+   1.5 MB image: 201 application/json; charset=utf-8   (Nginx's default limit of 1 MB would refuse it)
+   3 MB image:   413 application/problem+json products.image_too_large   (the API's own answer)
+   5 MB image:   413 text/html   (Nginx's answer, above client_max_body_size 4m)
+
+== 6. WebSockets through /hubs/
+   6 WebSockets open at once, without negotiating: 6 x HTTP/1.1 101 Switching Protocols
+   the instances they reached: api1 2, api2 2, api3 2
+   a line, token hidden: [2026-11-23T14:28:16+00:00] 172.23.0.1 "GET /hubs/admin?batch=ws&i=6&access_token=[hidden] HTTP/1.1" 101 upstream=172.23.0.5:8080 upstream_status=101 time=2.997
+   10 page loads that negotiate first, as the live pages did before R5-10: 404 404 404 404 404 404 404 404 404 404
+
+== 7. Passive health checks: api2 stops for 13 s while requests keep coming
+   docker stop api2 at 5.1 s (it stopped at 5.9 s); docker start at 19.0 s (listening at 21.2 s)
+   94 requests: 94 answered 200, 0 failed; the slowest took 2.0 s (request at 5.6 s: api2 then api1)
+   api2's last answer before stopping: at 4.7 s; its first after starting: at 25.4 s
+   requests that failed over to another instance: 1
+     at 5.6 s: api2 then api1 in 2.0 s
+   Nginx's error log: 1 failed connections, 1 times an instance was taken out, 1 failed lookups of api2
+
+== 8. The live pages' own code in a browser, through Nginx (task R5-10)
+   skipped: no Chromium or Chrome on this machine. In a browser, http://127.0.0.1:58080/app/admin.html shows Live after signing in

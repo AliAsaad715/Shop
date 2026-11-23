@@ -37,7 +37,7 @@ The schema, upload and catalog test classes all share the `Products database` co
 
 ## Demo seed
 
-`DemoSeedTests` starts the Products module with `DemoSeed:Enabled=true` against PostgreSQL and checks that the seeder adds the six demo products with a PNG image each, and that running it again adds nothing and keeps an edited price. It also reads `warehouse/db/002_seed.sql` and fails unless the warehouse stocks exactly the app's demo product IDs, with one unit of product X.
+`DemoSeedTests` explicitly initializes the Products module with `DemoSeed:Enabled=true` against PostgreSQL before starting its host. It checks that the seeder adds the six demo products with a PNG image each, and that running initialization again adds nothing and keeps an edited price. It also reads `warehouse/db/002_seed.sql` and fails unless the warehouse stocks exactly the app's demo product IDs, with one unit of product X.
 
 ## Product updates and cache invalidation
 

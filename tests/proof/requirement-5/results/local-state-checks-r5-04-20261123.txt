@@ -1,0 +1,55 @@
+== Setup
+   logs: /tmp/shop-r5-audit.L2uSD4
+   built src/Shop.Api (Release)
+   throwaway Postgres on 127.0.0.1:55432 and Redis on 127.0.0.1:56379
+
+== 1. Explicit migrator, then three instances start at once (3 empty-database rounds; R5-04)
+   round 1: api1 started
+            api2 started
+            api3 started
+   round 2: api1 started
+            api2 started
+            api3 started
+   round 3: api1 started
+            api2 started
+            api3 started
+   -> 0 of 9 first starts crashed
+   started again one at a time: api1 Degraded, api2 Degraded, api3 Degraded (Degraded: no RabbitMQ or warehouse here)
+
+== 2. Login rate limiter in memory: wrong passwords from one client
+   10 tries, all to api1:            401 401 401 401 401 429 429 429 429 429
+   18 tries, taking turns api1-api3: 401 401 401 401 401 401 401 401 401 401 401 401 401 401 401 429 429 429
+   -> 15 tries before the first 429; one instance allows 5
+
+== 3. HybridCache's local copy: a product renamed through api1, then read from each instance
+   PUT through api1: 204
+    1.4 s  api1 new   api2 OLD   api3 OLD
+    3.8 s  api1 new   api2 OLD   api3 OLD
+    6.3 s  api1 new   api2 new   api3 new
+
+== 4. Product images on local disk: each instance has its own folder, like containers without a shared volume
+   a demo image seeded by migrator:  api1 200, api2 404, api3 404
+   uploaded through api1, 9 requests: api1:200 api2:404 api3:404 api1:200 api2:404 api3:404 api1:200 api2:404 api3:404
+   -> 3 of 9 found
+
+== 5. SignalR negotiation: the negotiate request and the WebSocket reach different instances
+   negotiate on api1, WebSocket on api1: HTTP/1.1 101 Switching Protocols
+   negotiate on api1, WebSocket on api2: HTTP/1.1 404 Not Found
+   no negotiate (skipNegotiation), WebSocket on api2: HTTP/1.1 101 Switching Protocols
+
+== 6. Absolute URLs: what the Host header changes
+   OpenAPI servers, Host: localhost       (Nginx $host):      [{"url":"http://localhost/"}]
+   OpenAPI servers, Host: localhost:8080  (Nginx $http_host): [{"url":"http://localhost:8080/"}]
+   POST /products with Host: api1:8080 -> Location: /api/v1/products/01a208cf-c90d-7e73-88cc-3fdc4f47b420
+
+== 7. Warehouse release retries (pending_releases): 20 queued, the warehouse unreachable
+   -> 12 of 20 rows had their first retry run by more than one instance
+   first-retry log lines: api1 12, api2 9, api3 20
+
+== 8. Database connections: the budget
+   Postgres max_connections: 100; Npgsql opens up to 100 per instance by default (Maximum Pool Size), so three instances may ask for 300
+
+== 9. Checked and safe
+   a token from api3, GET /users/me: api1 200, api2 200, api3 200
+   account lockout, 5 wrong passwords: api1:401 api2:401 api3:401 api1:401 api2:401 -> the right one on api3: 401
+   Data Protection lines in every log, Information level included: 0
