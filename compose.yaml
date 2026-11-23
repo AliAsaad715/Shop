@@ -1,4 +1,4 @@
-# Copy .env.example to .env and set JWT_SIGNING_KEY before the first run. The inventory service
+# Copy .env.example to .env and set JWT_SIGNING_KEY and S3_SECRET_KEY before the first run. The inventory service
 # builds from the warehouse submodule, so clone with --recurse-submodules.
 # Run `docker compose up`; add --build after code changes. The API answers at http://localhost:8080 (API_PORT),
 # through Nginx.
@@ -18,7 +18,11 @@ x-api: &api
     # One source for the actual network and the API's trust boundary (R5-05).
     ReverseProxy__Enabled: "true"
     ReverseProxy__TrustedNetworks__0: ${SHOP_NETWORK_SUBNET:-172.30.50.0/24}
-    Images__RootPath: /data/images
+    Images__Provider: S3
+    Images__S3__Endpoint: http://seaweedfs:8333
+    Images__S3__Bucket: ${S3_BUCKET:-shop-images}
+    Images__S3__AccessKey: ${S3_ACCESS_KEY:-shop-images}
+    Images__S3__SecretKey: ${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env}
     ConnectionStrings__Shop: Host=postgres;Port=5432;Database=${POSTGRES_DB:-shop};Username=${POSTGRES_USER:-shop};Password=${POSTGRES_PASSWORD:-shop}
     ConnectionStrings__ShopRead: Host=db-replica,postgres;Port=5432;Database=${POSTGRES_DB:-shop};Username=${POSTGRES_USER:-shop};Password=${POSTGRES_PASSWORD:-shop};Target Session Attributes=prefer-standby;Timeout=2;Host Recheck Seconds=5
     ReadRouting__Enabled: ${READ_ROUTING_ENABLED:-false}
@@ -40,14 +44,12 @@ x-api: &api
     RabbitMq__Host: rabbitmq
     RabbitMq__UserName: ${RABBITMQ_USER:-shop}
     RabbitMq__Password: ${RABBITMQ_PASSWORD:-shop}
-  volumes:
-    # One folder for all three, so an image uploaded through one instance is found by the others. That works only
-    # while they share a machine (local-state audit, finding 4); R5-07 moves images to object storage
-    - images:/data/images
   depends_on:
     migrator:
       condition: service_completed_successfully
     postgres:
+      condition: service_healthy
+    seaweedfs:
       condition: service_healthy
     # Started first but not awaited: the app runs Degraded without the warehouse, so a warehouse
     # that never gets healthy must not keep the shop down
@@ -79,6 +81,49 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      # Demo seeding writes images through the same S3 provider as the API (R5-07).
+      seaweedfs:
+        condition: service_healthy
+
+  # Explicit upgrade command only; never imports, migrates or seeds during ordinary API startup.
+  # Retain the old volume as a read-only source: docker compose --profile tools run --rm image-import
+  image-import:
+    <<: *api
+    profiles: [tools]
+    command: ["--import-images"]
+    restart: "no"
+    environment:
+      <<: *api-environment
+      Images__RootPath: /legacy-images
+    volumes:
+      - images:/legacy-images:ro
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+
+  # One shared object store for this requirement; all metadata and object data persist under /data.
+  # No public ports: images are served by /images/... through Nginx. The tools overlay offers loopback-only S3.
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.53
+    command: ["mini", "-dir=/data", "-ip=seaweedfs", "-ip.bind=0.0.0.0", "-webdav=false", "-admin.ui=false", "-s3.autoCreateBucket=false"]
+    restart: unless-stopped
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-shop-images}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env}
+      S3_BUCKET: ${S3_BUCKET:-shop-images}
+    volumes:
+      - seaweedfs-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8888/buckets/$$S3_BUCKET/ && nc -z 127.0.0.1 8333"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 60s
+      start_interval: 1s
 
   # The three API instances behind Nginx (task R5-03), named so Nginx can list them and a demo can stop exactly one.
   # Each sends its name in the X-Instance header and in its RabbitMQ connection's name. All three wait for the
@@ -359,6 +404,8 @@ networks:
 volumes:
   postgres-data:
   postgres-replica-data:
+  # Legacy image source for the explicit importer; API instances never mount it (R5-07).
   images:
+  seaweedfs-data:
   inventory-db-data:
   rabbitmq-data:

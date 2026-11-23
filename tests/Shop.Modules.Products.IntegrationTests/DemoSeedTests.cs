@@ -123,6 +123,7 @@ public sealed class DemoSeedFixture : IAsyncLifetime
             ["ConnectionStrings:Shop"] = connectionString,
             ["ReadRouting:Enabled"] = "false",
             ["CatalogCache:Enabled"] = "false",
+            ["Images:Provider"] = "Local",
             ["Images:RootPath"] = ImageRoot,
             ["DemoSeed:Enabled"] = "true",
             // Required at startup; seeding never calls the warehouse

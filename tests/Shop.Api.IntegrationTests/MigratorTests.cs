@@ -118,6 +118,31 @@ public sealed class MigratorTests(MigratorFixture fixture) : IClassFixture<Migra
         Assert.Empty(Directory.GetFiles(settings["Images:RootPath"], "*", SearchOption.AllDirectories));
     }
 
+    [Fact]
+    public async Task ImportRequiresS3AndDoesNotInitializeAnEmptyDatabaseOrStartAHost()
+    {
+        var settings = Settings(await fixture.CreateDatabaseAsync(), fixture.CreateImages());
+        var result = await RunCommandAsync(settings, "--import-images");
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("Image import requires Images:Provider=S3", result.Output);
+        Assert.DoesNotContain("Now listening on", result.Output);
+        Assert.DoesNotContain("Running module seeder", result.Output);
+        Assert.Equal(0, await ScalarAsync<long>(settings["ConnectionStrings:Shop"],
+            "SELECT count(*) FROM information_schema.schemata WHERE schema_name IN ('users','products','orders','notifications')"));
+    }
+
+    [Fact]
+    public async Task MaintenanceModesCannotBeCombined()
+    {
+        var settings = Settings(await fixture.CreateDatabaseAsync(), fixture.CreateImages());
+        var result = await RunCommandAsync(settings, "--migrate-and-seed", "--import-images");
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("Choose either --migrate-and-seed or --import-images", result.Output);
+        Assert.DoesNotContain("Now listening on", result.Output);
+        Assert.Equal(0, await ScalarAsync<long>(settings["ConnectionStrings:Shop"],
+            "SELECT count(*) FROM information_schema.schemata WHERE schema_name IN ('users','products','orders','notifications')"));
+    }
+
     private static Dictionary<string, string> Settings(string connection, string images) => new()
     {
         ["ConnectionStrings:Shop"] = connection,
@@ -126,6 +151,7 @@ public sealed class MigratorTests(MigratorFixture fixture) : IClassFixture<Migra
         ["Admin:Email"] = "admin@shop.test",
         ["Admin:Password"] = "Admin123!",
         ["DemoSeed:Enabled"] = "true",
+        ["Images:Provider"] = "Local",
         ["Images:RootPath"] = images,
         ["Jwt:SigningKey"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)),
         ["Jwt:Issuer"] = "shop", ["Jwt:Audience"] = "shop-api", ["Jwt:LifetimeMinutes"] = "15",
@@ -137,7 +163,10 @@ public sealed class MigratorTests(MigratorFixture fixture) : IClassFixture<Migra
         ["Cors:AllowedOrigins:0"] = "http://localhost:5173",
     };
 
-    private static async Task<(int ExitCode, string Output)> RunMigratorAsync(Dictionary<string, string> settings)
+    private static Task<(int ExitCode, string Output)> RunMigratorAsync(Dictionary<string, string> settings) =>
+        RunCommandAsync(settings, "--migrate-and-seed");
+
+    private static async Task<(int ExitCode, string Output)> RunCommandAsync(Dictionary<string, string> settings, params string[] arguments)
     {
         var start = new ProcessStartInfo("dotnet")
         {
@@ -145,7 +174,7 @@ public sealed class MigratorTests(MigratorFixture fixture) : IClassFixture<Migra
             RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false,
         };
         start.ArgumentList.Add(typeof(global::Program).Assembly.Location);
-        start.ArgumentList.Add("--migrate-and-seed");
+        foreach (var argument in arguments) start.ArgumentList.Add(argument);
         start.Environment["DOTNET_ENVIRONMENT"] = Environments.Production;
         start.Environment["ASPNETCORE_ENVIRONMENT"] = Environments.Production;
         foreach (var setting in settings) start.Environment[setting.Key.Replace(":", "__")] = setting.Value;

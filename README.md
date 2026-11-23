@@ -8,7 +8,8 @@ included here as the `warehouse` submodule. Clone with
 `git submodule update --init`.
 
 Copy `.env.example` to `.env`, configure the admin account, and set `JWT_SIGNING_KEY`
-to the base64 encoding of at least 32 random bytes. Generate it in PowerShell 7:
+and `S3_SECRET_KEY` to separate random values. The JWT key must be the base64 encoding of at least 32 random bytes;
+the same PowerShell 7 command can generate each value:
 
 ```powershell
 [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
@@ -1180,11 +1181,11 @@ RabbitMQ gives each message to one of them; `docker compose stop worker` stops a
 - All three API instances and all three workers wait for `migrator` to exit successfully (R5-04); api2 and api3
   no longer depend on api1. The API healthcheck asks `/health` with bash, as the image has no curl. None of the
   runtime hosts applies migrations or seeds data.
-- The three instances share the `images` volume, so an upload through one is found by all, as long as they share a
-  machine (finding 4; R5-07 moves images to object storage).
+- The three instances use SeaweedFS through S3 (R5-07). None mounts an image directory; the same image is available
+  from every instance even when their filesystems are separate.
 - k6 (`perf/run.sh`), the perf proofs and the Requirement 4 proof kit reach the API through Nginx; commands that named
   the `api` service now name `api1 api2 api3`. YAML merges are shallow, so each instance merges the shared environment
-  before adding its name; the migrator overrides its inherited dependencies to wait only for PostgreSQL.
+  before adding its name; the migrator overrides its inherited dependencies to wait for PostgreSQL and SeaweedFS.
 
 The checks start the whole stack as a separate Compose project, on empty volumes and other ports, so the stack you run
 is never touched:
@@ -1204,12 +1205,13 @@ An existing stack still has the old `api` container: `docker compose up -d --bui
 ## Explicit migrations and seeding (task R5-04)
 
 `docker compose up -d --build --wait` runs `migrator` from the same `shop-api` image as the three API instances.
-It waits only for a healthy PostgreSQL, applies the Users, Products, Orders and Notifications migrations to the
+It waits for healthy PostgreSQL and SeaweedFS, applies the Users, Products, Orders and Notifications migrations to the
 primary connection (`ConnectionStrings:Shop`), then seeds the admin and the optional demo catalog. It never starts
 an HTTP listener, a RabbitMQ connector or a background consumer. Redis cache invalidation remains best effort;
 RabbitMQ or the warehouse being down cannot block initialization.
 
-The migrator shares the `images` volume with the API instances, so the demo PNGs remain available after it exits.
+The migrator checks the S3 bucket before initialization, and its demo seeder writes images into that bucket (R5-07).
+It shares no image directory with the API instances, and existing product image keys are retained.
 It has no published port, no HTTP healthcheck and no restart policy. `Exited (0)` is its successful final state,
 not an unhealthy API. Compose starts the API instances and workers only after that successful exit:
 
@@ -1224,11 +1226,11 @@ their edits and their images are preserved. Missing admin credentials log a warn
 1 and prevents new dependent hosts from starting. Completed migrations are retained if a later seed fails, so
 correcting the cause and repeating initialization is safe.
 
-For a failed Compose initialization, correct the configuration, ensure PostgreSQL is running, and recreate the
+For a failed Compose initialization, correct the configuration, ensure PostgreSQL and SeaweedFS are healthy, and recreate the
 actual migrator service before starting the rest:
 
 ```sh
-docker compose up -d postgres
+docker compose up -d --wait postgres seaweedfs
 docker compose up --no-deps --force-recreate --exit-code-from migrator migrator
 docker compose up -d --wait
 ```
@@ -1318,6 +1320,112 @@ shared 429 to its independent 401. The
 [Nginx](tests/proof/requirement-5/results/nginx-checks-r5-05-20261123.txt) regressions passed; the optional
 browser-only Nginx step was skipped because Chrome/Chromium was unavailable to the script.
 
+## Shared product images through S3 (task R5-07)
+
+Compose runs `chrislusf/seaweedfs:4.53` in single-container `mini` mode with authenticated S3 at `http://seaweedfs:8333`.
+The `seaweedfs-data` volume retains both metadata and image bytes across container recreation. The bucket is
+pre-created with `S3_BUCKET` (default `shop-images`); implicit bucket creation on upload is disabled so a misspelled
+bucket fails instead of silently putting images somewhere else. The base Compose file publishes no storage port.
+
+```sh
+docker pull chrislusf/seaweedfs:4.53
+```
+
+Set `S3_ACCESS_KEY` (default `shop-images`) and the required `S3_SECRET_KEY` in `.env`. Use the same values on the
+store and its clients. Do not commit the actual secret. Existing installations must import their local images
+before switching the API instances to S3; a fresh installation just runs `docker compose up -d --build --wait`.
+
+`IImageStorage` retains its save/delete/read contract. `Images:Provider=S3` selects the S3 implementation using
+`AWSSDK.S3` 4.1.2, path-style addressing, one SDK retry, and a five-second operation deadline. `Images:S3` contains
+`Endpoint`, `Bucket`, `AccessKey`, `SecretKey`, `Region` (default `us-east-1`) and `OperationTimeout` (positive, up to
+30 seconds). Invalid settings fail startup without falling back to disk. The API still accepts one Admin upload
+of at most 2 MiB, detects JPEG/PNG/WebP signatures and generates `products/{uuid-without-dashes}.{jpg|png|webp}` keys.
+Size validation buffers at most 2 MiB plus one detection byte before sending an object; it also supports non-seekable
+streams. Database `image_path` values and same-origin `/images/products/...` URLs are unchanged; no schema migration,
+public bucket, presigned URL, browser CORS change or frontend update is needed.
+
+An absent object is 404. A failed S3 operation before the response starts is 503 Problem Details with
+`common.service_unavailable` and `traceId`. A disconnect after image headers have been sent aborts that GET; callers
+can retry it. A failed product save attempts a bounded compensating object deletion and logs its key if deletion
+also fails, preserving the database error. S3 and PostgreSQL do not share a transaction: a lost upload acknowledgement
+or failed compensating deletion can leave an orphan object; no automatic orphan collector is introduced here.
+The authenticated bucket health probe reports `Degraded` within one second during an outage, so existing catalog
+browsing remains available and the normal `/health` probe still answers inside its container timeout.
+
+### Import an existing local image volume
+
+The explicit `--import-images` mode opens no HTTP listener and runs no migrations, seeders or background services.
+It requires S3 and an existing Products schema. Compose's tools-profile `image-import` service mounts the legacy
+`images` volume (normally `shop_images`) read-only at `/legacy-images`, supplying that as `Images:RootPath`.
+The volume must contain a `products` directory. Files, directory links and reparse points that do not meet the
+generated-key format are rejected, as are invalid signatures and oversized files.
+
+Copying preserves every key. Each copied image is downloaded and checked using SHA-256; existing objects must
+have identical bytes to be counted as matched. Conditional writes avoid replacing an existing object. The final
+check reads every image key referenced by the Products schema, catching missing images even when the source
+contains other valid files. The summary reports copied, matched, failed and referenced counts. Exit 0 means all
+checks passed; exit 1 means the source is retained and the switch must wait. Repeating the command resumes safely.
+`--import-images` and `--migrate-and-seed` are mutually exclusive.
+
+Pause API writes while importing so the old volume cannot change beneath the copy. With `.env` configured:
+
+```sh
+docker compose build api1
+docker compose stop nginx api1 api2 api3
+docker compose up -d --wait postgres seaweedfs
+docker compose --profile tools run --rm image-import
+# Continue only after the import exits 0. Recreate the real migrator so its completion gate is current.
+docker compose up --no-deps --force-recreate --exit-code-from migrator migrator
+docker compose up -d --wait
+```
+
+Verify `/health`, `/docs`, old demo image URLs and a new upload. Retain the legacy volume after the switch and
+never use `down -v` for this upgrade. A rollback before reopening writes can reuse the old application/configuration
+and its volume; after new S3 uploads have been accepted, copy those images back and verify them before reverting
+to Local. One SeaweedFS container is persistent shared storage, not replicated storage; storage high availability
+remains outside this requirement. If the R5-05 network change has not yet been applied, also follow that section's
+network recreation instructions, preserving all volumes.
+
+### Direct local runs and verification
+
+Direct runs default to `Images:Provider=Local` and `Images:RootPath=App_Data/images` relative to the content root.
+Use a matching local image directory/database. When sharing a database whose images already live in Compose's
+S3 bucket, select S3 locally too: start SeaweedFS with the tools overlay, which publishes S3 on loopback only:
+
+```sh
+docker compose -f compose.yaml -f compose.tools.yaml up -d --wait seaweedfs
+```
+
+Set `Images__Provider=S3`, `Images__S3__Endpoint=http://localhost:8333`, and the same bucket/access key/secret as
+Compose before running the local API. The local default does not read Compose's `.env` automatically. For a
+non-Docker source, set `Images__RootPath` to the legacy directory and run
+`dotnet run --project src/Shop.Api -- --import-images`.
+
+The S3 integration tests use real disposable SeaweedFS/PostgreSQL containers; existing local-file fixtures
+explicitly select Local. They cover independent hosts, metadata/bytes, authorization, size limits, cancellation,
+cleanup, storage errors, import repetition/conflicts/missing references, source links and demo seeding. CI's existing
+Products job discovers these tests. The proof script uses its own network, volumes and ports, and never redeploys
+the normal Shop stack:
+
+```sh
+# Run before on parent 7a7e397 before changing the application; run after on this feature.
+bash tests/proof/requirement-5/image-storage-checks.sh before
+bash tests/proof/requirement-5/image-storage-checks.sh after
+```
+
+The before proof gives each API its own local folder. The after proof imports old demo images twice, checks nine
+reads covering all three `X-Instance` values with identical hashes and zero API volume mounts, recreates the uploader
+and object store while retaining storage data, then verifies 503/no product insertion during an outage and recovery.
+See the saved [before](tests/proof/requirement-5/results/images-before-20261123.txt),
+[after](tests/proof/requirement-5/results/images-after-20261123.txt) and
+[verification](tests/proof/requirement-5/results/images-verification-20261123.txt) evidence.
+
+Verification passed 735 .NET cases with zero failures/skips and a build with zero warnings/errors. The
+[Compose regression](tests/proof/requirement-5/results/compose-checks-r5-07-20261123.txt) verified S3 with zero API or
+migrator mounts, three workers, image availability, order/email delivery and 0% k6 failures. The
+[Nginx regression](tests/proof/requirement-5/results/nginx-checks-r5-07-20261123.txt) also passed; its optional
+browser-only step was skipped because Chrome/Chromium was unavailable.
+
 ## Verify
 
 ```sh
@@ -1328,6 +1436,7 @@ dotnet test Shop.slnx -m:1
 Integration tests use PostgreSQL 18 containers, and the messaging tests a RabbitMQ 4.3 container. With Docker unavailable, configure separate
 disposable databases using `SHOP_USERS_TEST_CONNECTION`, `SHOP_PRODUCTS_TEST_CONNECTION`,
 `SHOP_ORDERS_TEST_CONNECTION`, `SHOP_NOTIFICATIONS_TEST_CONNECTION` and `SHOP_CONFORMANCE_TEST_CONNECTION`. Tests apply migrations and change data.
-The conformance fixture creates its own temporary JWT signing key.
+The conformance fixture creates its own temporary JWT signing key. The S3 tests require Docker even if an external
+test database is supplied.
 
 See [security-headers.http](tests/http/security-headers.http) for manual header and CORS checks.

@@ -69,7 +69,7 @@ start_api() {
     -e ASPNETCORE_ENVIRONMENT=Production \
     -e ReverseProxy__Enabled=true -e ReverseProxy__TrustedNetworks__0="$subnet" \
     -e ConnectionStrings__Shop="Host=postgres;Port=5432;Database=shop;Username=shop;Password=shop" \
-    -e ConnectionStrings__Redis=redis:6379 -e Images__RootPath=/data/images \
+    -e ConnectionStrings__Redis=redis:6379 -e Images__Provider=Local -e Images__RootPath=/data/images \
     -e Jwt__SigningKey="$JWT_KEY" -e Admin__Email=admin@shop.local -e Admin__Password='Admin123!' \
     -e DemoSeed__Enabled=true -e Cors__AllowedOrigins__0=http://localhost:5173 \
     -e Inventory__Address=http://127.0.0.1:1 \
@@ -144,7 +144,7 @@ say "network $NETWORK with Postgres and Redis"
 docker run --rm --name "$PREFIX-migrator" --network "$NETWORK" -v "$IMAGES:/data/images" \
   -e ASPNETCORE_ENVIRONMENT=Production \
   -e ConnectionStrings__Shop='Host=postgres;Port=5432;Database=shop;Username=shop;Password=shop' \
-  -e ConnectionStrings__Redis=redis:6379 -e Images__RootPath=/data/images \
+  -e ConnectionStrings__Redis=redis:6379 -e Images__Provider=Local -e Images__RootPath=/data/images \
   -e Admin__Email=admin@shop.local -e Admin__Password='Admin123!' -e DemoSeed__Enabled=true \
   "$IMAGE" --migrate-and-seed >"$WORK/migrator.log" 2>&1 ||
   { cat "$WORK/migrator.log" >&2; fail "explicit database initialization failed"; }

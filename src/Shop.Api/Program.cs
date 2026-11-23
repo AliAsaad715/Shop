@@ -13,9 +13,16 @@ using Shop.SharedKernel.Errors;
 using Shop.SharedKernel.Persistence;
 
 const string migrationArgument = "--migrate-and-seed";
+const string importArgument = "--import-images";
 var migrateAndSeed = args.Contains(migrationArgument, StringComparer.Ordinal);
+var importImages = args.Contains(importArgument, StringComparer.Ordinal);
+if (migrateAndSeed && importImages)
+{
+    Console.Error.WriteLine("Choose either --migrate-and-seed or --import-images, not both.");
+    return 1;
+}
 // This standalone switch belongs to the entry point, not the key/value configuration provider.
-var builder = WebApplication.CreateBuilder(args.Where(argument => argument != migrationArgument).ToArray());
+var builder = WebApplication.CreateBuilder(args.Where(argument => argument != migrationArgument && argument != importArgument).ToArray());
 builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
 
 // api1, api2 or api3 when Compose runs three instances behind Nginx (task R5-03); null otherwise
@@ -45,11 +52,22 @@ builder.Services.AddReverseProxyHeaders();
 
 await using var app = builder.Build();
 
+if (importImages)
+{
+    try { return await app.Services.ImportProductImagesAsync() ? 0 : 1; }
+    catch (Exception exception)
+    {
+        app.Logger.LogCritical(exception, "Image import failed; legacy images retained");
+        return 1;
+    }
+}
+
 if (migrateAndSeed)
 {
     try
     {
         // Do not start this host: no listener, RabbitMQ connection, relay or consumer is needed to initialize data.
+        await app.Services.EnsureProductImageStorageReadyAsync();
         await app.InitializeModuleDatabasesAsync();
         return 0;
     }

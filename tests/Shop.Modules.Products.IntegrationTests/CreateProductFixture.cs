@@ -50,6 +50,7 @@ public sealed class CreateProductFixture : IAsyncLifetime
             ["ConnectionStrings:Shop"] = connectionString,
             ["ReadRouting:Enabled"] = "false",
             ["CatalogCache:Enabled"] = "false",
+            ["Images:Provider"] = "Local",
             ["Images:RootPath"] = ImageRoot,
             // Required at startup; creating a product never calls the warehouse
             ["Inventory:Address"] = "http://localhost:50051",

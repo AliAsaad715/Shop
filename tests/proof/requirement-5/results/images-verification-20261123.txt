@@ -1,0 +1,98 @@
+R5-07 verification — 2026-11-23
+
+Branch: feature/r5-07-object-storage
+Parent: feature/r5-05-forwarded-headers at 7a7e3978c5f341d974cf0b6ca8f632e5508beed1
+Remote: https://github.com/AliAsaad715/Shop.git
+SeaweedFS: chrislusf/seaweedfs:4.53
+Image digest: sha256:ccad23e18639c8b98cee17e7100b95830a06077b56d8e5b006d6dcf8ec5e94a0
+S3 SDK: AWSSDK.S3 4.1.2
+
+Build
+  dotnet build Shop.slnx --no-restore -m:1 -nr:false
+  PASS: 0 warnings, 0 errors.
+
+Complete solution tests
+  dotnet test Shop.slnx --no-build --no-restore -m:1 -nr:false --logger trx \
+    --results-directory artifacts/test-results/r5-07/full
+
+  Suite                                           Passed Failed Skipped
+  Shop.Api.ConformanceTests                           75      0       0
+  Shop.Api.IntegrationTests                          127      0       0
+  Shop.ArchitectureTests                              28      0       0
+  Shop.Messaging.IntegrationTests                     31      0       0
+  Shop.Modules.Notifications.IntegrationTests         58      0       0
+  Shop.Modules.Orders.IntegrationTests                48      0       0
+  Shop.Modules.Orders.UnitTests                       49      0       0
+  Shop.Modules.Products.IntegrationTests             196      0       0
+  Shop.Modules.Products.UnitTests                     27      0       0
+  Shop.Modules.Users.IntegrationTests                 67      0       0
+  Shop.Modules.Users.UnitTests                        29      0       0
+  TOTAL                                             735      0       0
+
+  Includes 43 new image/S3/import cases and 2 executable command-mode cases.
+  The final configuration-only rerun passed 16/16 after pinning its host environment and clearing default OS
+  logging providers, so options validation does not depend on Windows Event Log permissions. No runtime code
+  changed after the complete solution run. TRX files remain in ignored artifacts/test-results/r5-07.
+
+Before / after
+  bash tests/proof/requirement-5/image-storage-checks.sh before
+  bash tests/proof/requirement-5/image-storage-checks.sh after
+
+  The before run compiled the untouched parent application and Nginx configuration before runtime edits.
+  The after run compiled the feature working tree before commit, so both log headings show the base 7a7e397.
+  All resources used the disposable shop-r5-images prefix; the normal Shop stack and data were not redeployed.
+
+  Before: separate local volumes; upload on api3; api1/api2 returned 404, api3 returned 200: 3/9 found.
+  After: legacy import copied 6 images, verified 6 references, failed 0; repeat copied 0, matched 6, failed 0.
+  Upload on api2; 3 reads through Nginx from each API: 9/9 found, all with identical SHA-256.
+  SHA-256: 9e38aefdd362392d446d0325691da9a059614e2c4d848a4a3deaab85847f7375
+  Existing demo image URL: 200. Each API container had zero mounts.
+  Recreated uploader and SeaweedFS containers, retaining the storage volume: 9/9 found with identical hashes.
+  Stopped SeaweedFS: upload and image read returned 503; product count did not change.
+  Restarted SeaweedFS: 9/9 found again with identical hashes.
+  Source and destination verification uses SHA-256 bytes, not an assumption about S3 ETags.
+
+Compose regression (final script with explicit S3/zero-mount assertions)
+  bash tests/proof/requirement-5/compose-checks.sh
+  PASS: isolated project shop-r5-compose, separate subnet 172.30.51.0/24 and host ports.
+  A failed migrator blocked all three APIs and three workers; correction and retry succeeded on the same data.
+  All three APIs healthy, SeaweedFS healthy, three workers running; only the migrator initialized the database.
+  Demo image available on all three through S3; APIs and migrator all selected S3 and had zero mounts.
+  /docs returned 200. Three email consumers connected; order returned 201 and its email arrived.
+  300 sequential requests: api1 100, api2 100, api3 100.
+  k6, 10 users for 10 seconds: api1 12581, api2 14519, api3 12775; failed requests 0.00%.
+  Explicit initialization retained the catalog; restarting all six runtime hosts performed no initialization.
+
+Nginx regression
+  bash tests/proof/requirement-5/nginx-checks.sh
+  PASS: nginx -t, delayed DNS join/rejoin, one access-log line per request, original Host/port, upload size limits.
+  This transport-focused proof explicitly uses Local; the image proof and Compose regression above use S3.
+  300 requests: 100/100/100. Uploads: 1.5 MiB -> 201, 3 MiB -> API 413 Problem Details, 5 MiB -> Nginx 413.
+  Six simultaneous WebSockets returned 101, split 2/2/2.
+  API stop/start: 110 requests, 110 HTTP 200, 0 failures; one request failed over in 2.0 seconds.
+  Optional browser-only live-page step skipped because Chrome/Chromium was unavailable to the script.
+  All .NET test cases above ran with zero skips.
+
+Static/configuration checks
+  PASS: docker compose --profile tools config --format json and tools overlay config validation.
+  APIs/migrator: S3 provider, no image mounts, storage-healthy dependencies; no API published ports.
+  Importer: tools profile, read-only legacy volume, no dependency on the runtime API or automatic seeding.
+  Base storage service: no published ports; tools overlay publishes S3 on loopback only.
+  PASS: bash -n on all five Requirement 5 scripts; git diff --check.
+
+Cleanup / rollout
+  No shop-r5-* proof containers remain. Normal shop_images volume still exists.
+  Normal shop_default network remains 172.21.0.0/16; it was not recreated by these proofs.
+  Set S3_SECRET_KEY in the local .env and follow README's explicit import/migrator sequence before switching
+  an existing installation. Keep the legacy volume; do not use down -v. Apply R5-05's network recreation
+  instructions too if that change has not yet been deployed. Fresh installations do not run the importer.
+  No real credentials were added to the repository or changed in the normal stack.
+
+  On Windows, ignored artifacts/r5-07/run-proof.sh supplies the Git Bash host-path adaptations for native Docker
+  and curl. Checked-in scripts run directly in Linux/WSL. Proof projects alone are removed with their own volumes.
+
+Boundaries
+  Public image routes, product DTOs and stored image keys are preserved; no database migration is needed.
+  Local is optional outside Compose. S3 failures never fall back to Local.
+  One persistent SeaweedFS container is not a replicated storage cluster. S3/PostgreSQL do not share a transaction;
+  failed acknowledgements or compensating deletion can leave an orphan object. Those limits are documented.

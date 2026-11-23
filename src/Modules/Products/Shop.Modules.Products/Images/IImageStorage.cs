@@ -8,8 +8,3 @@ internal interface IImageStorage
 }
 
 internal sealed record StoredImage(Stream Content, string ContentType);
-
-internal sealed class ImageStorageOptions
-{
-    public string RootPath { get; set; } = "App_Data/images";
-}

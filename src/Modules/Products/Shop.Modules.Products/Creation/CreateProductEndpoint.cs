@@ -29,7 +29,8 @@ internal static class CreateProductEndpoint
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
-            .ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
+            .ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
     public static async Task<Results<Created<CreatedProductResponse>, ProblemHttpResult>> HandleAsync(
         [FromForm] CreateProductRequest request, ProductsDbContext context, IImageStorage images,
@@ -65,7 +66,14 @@ internal static class CreateProductEndpoint
         }
 
         input.Position = 0;
-        var path = await images.SaveAsync(input, extension, ct);
+        string path;
+        try { path = await images.SaveAsync(input, extension, ct); }
+        catch (ImageStorageUnavailableException error)
+        {
+            logger.LogError(error, "Product image upload failed before saving the product");
+            return Problems.Create(StatusCodes.Status503ServiceUnavailable, ErrorCodes.Common.ServiceUnavailable,
+                "Image storage unavailable", "Try again when product image storage is available.");
+        }
         var product = new Product
         {
             Name = request.Name.Trim(),

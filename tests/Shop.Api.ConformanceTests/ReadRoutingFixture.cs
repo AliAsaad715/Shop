@@ -129,6 +129,7 @@ public sealed class ReadRoutingFixture : IAsyncLifetime
             ["ConnectionStrings:Redis"] = $"{_redis.Hostname}:{_redis.GetMappedPublicPort(6379)}",
             ["ReadRouting:Enabled"] = "true", ["ReadRouting:PrimaryWindow"] = "00:00:10",
             ["CatalogCache:Enabled"] = "true", ["DemoSeed:Enabled"] = "false",
+            ["Images:Provider"] = "Local",
             ["Images:RootPath"] = _images.FullName,
             ["Admin:Email"] = "", ["Admin:Password"] = "",
             ["Jwt:SigningKey"] = Convert.ToBase64String(_jwtKey),

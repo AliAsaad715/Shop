@@ -1,7 +1,11 @@
-# Local tools only: publishes the warehouse's gRPC port (Postman) and its database (DBeaver) on this
-# machine's loopback. inventory-db joins one extra network the app is not on, so the app still has no
+# Local tools only: publishes S3 for optional local API runs, the warehouse's gRPC port (Postman), and its database
+# (DBeaver) on this machine's loopback. inventory-db joins one extra network the app is not on, so the app still has no
 # route to it. Start with: docker compose -f compose.yaml -f compose.tools.yaml up -d
 services:
+  seaweedfs:
+    ports:
+      - "127.0.0.1:${S3_PORT:-8333}:8333"
+
   inventory:
     ports:
       - "127.0.0.1:${INVENTORY_GRPC_PORT:-50051}:50051"

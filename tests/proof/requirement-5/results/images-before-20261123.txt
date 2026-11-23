@@ -1,0 +1,24 @@
+1.30.7-alpine: Pulling from library/nginx
+Digest: sha256:caf4e1e032a20f9c3c5e28fc7f25ffd768ad8677b4975c54193075997b3a97e3
+Status: Image is up to date for nginx:1.30.7-alpine
+docker.io/library/nginx:1.30.7-alpine
+
+== R5-07 before; source 7a7e397 (working tree compiled below)
+   isolated resources: shop-r5-images; work folder: /tmp/shop-r5-images.zD5sBu
+
+== Initialize the legacy database and demo images with Local storage
+
+== Upload once through Nginx; read three times from each instance through Nginx
+   upload answered by api3; public path /images/products/01a209fab6b376828d57a72b9a68f7bb.png
+   api1 read 1: 404
+   api2 read 1: 404
+   api3 read 1: 200
+   api1 read 2: 404
+   api2 read 2: 404
+   api3 read 2: 200
+   api1 read 3: 404
+   api2 read 3: 404
+   api3 read 3: 200
+   3 of 9 found; SHA-256 9e38aefdd362392d446d0325691da9a059614e2c4d848a4a3deaab85847f7375
+
+== R5-07 before checks passed
