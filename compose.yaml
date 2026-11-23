@@ -6,7 +6,7 @@ name: shop
 
 # Everything the three API instances share (task R5-03): they differ only in their name. None publishes a port, so
 # nothing reaches an instance without going through Nginx. YAML merges are shallow, so a service that adds to the
-# environment or to depends_on merges that part's own anchor too
+# environment merges that part's own anchor too; the migrator overrides its inherited dependencies
 x-api: &api
   # One image for the three: building any of them builds it
   image: shop-api
@@ -20,7 +20,7 @@ x-api: &api
     ConnectionStrings__ShopRead: Host=db-replica,postgres;Port=5432;Database=${POSTGRES_DB:-shop};Username=${POSTGRES_USER:-shop};Password=${POSTGRES_PASSWORD:-shop};Target Session Attributes=prefer-standby;Timeout=2;Host Recheck Seconds=5
     ReadRouting__Enabled: ${READ_ROUTING_ENABLED:-false}
     ReadRouting__PrimaryWindow: ${READ_YOUR_WRITES_WINDOW:-00:00:10}
-    # Seeded on startup in the Admin role; change both outside local demos
+    # Used only by the explicit migrator; change both outside local demos
     Admin__Email: ${ADMIN_EMAIL:-admin@shop.local}
     Admin__Password: ${ADMIN_PASSWORD:-Admin123!}
     # The demo catalog, with the same product IDs as the warehouse seed (warehouse/db/002_seed.sql)
@@ -41,7 +41,9 @@ x-api: &api
     # One folder for all three, so an image uploaded through one instance is found by the others. That works only
     # while they share a machine (local-state audit, finding 4); R5-07 moves images to object storage
     - images:/data/images
-  depends_on: &api-dependencies
+  depends_on:
+    migrator:
+      condition: service_completed_successfully
     postgres:
       condition: service_healthy
     # Started first but not awaited: the app runs Degraded without the warehouse, so a warehouse
@@ -63,10 +65,21 @@ x-api: &api
     start_interval: 1s
 
 services:
+  # The same image as the API, but it initializes all four schemas and seeds, then exits without starting a host.
+  # Override the anchor's dependencies to avoid waiting for ourselves or for optional runtime services (R5-04).
+  migrator:
+    <<: *api
+    command: ["--migrate-and-seed"]
+    restart: "no"
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # The three API instances behind Nginx (task R5-03), named so Nginx can list them and a demo can stop exactly one.
-  # Each sends its name in the X-Instance header and in its RabbitMQ connection's name. api1 starts first: it applies
-  # the migrations and seeds, and the other two wait until it answers, so they never race it on an empty database
-  # (local-state audit, finding 1). R5-04's migrator will take that work over.
+  # Each sends its name in the X-Instance header and in its RabbitMQ connection's name. All three wait for the
+  # migrator to finish successfully, then start independently; none migrates or seeds at startup (R5-04).
   api1:
     <<: *api
     environment:
@@ -78,20 +91,12 @@ services:
     environment:
       <<: *api-environment
       INSTANCE_NAME: api2
-    depends_on:
-      <<: *api-dependencies
-      api1:
-        condition: service_healthy
 
   api3:
     <<: *api
     environment:
       <<: *api-environment
       INSTANCE_NAME: api3
-    depends_on:
-      <<: *api-dependencies
-      api1:
-        condition: service_healthy
 
   # The load balancer (task R5-02) and the only way in: http://localhost:8080 (API_PORT). It spreads requests over
   # api1-api3 with least_conn and routes around one that stops (deploy/nginx/default.conf)
@@ -109,7 +114,7 @@ services:
       - api3
 
   # The email worker (task R4-03): consumes order confirmations from RabbitMQ in its own container, so stopping it
-  # never touches the API, and the emails wait in the queue meanwhile. It migrates only its notifications schema.
+  # never touches the API, and the emails wait in the queue meanwhile. The migrator prepares its notifications schema.
   # Three of them share the queue (task R5-03): RabbitMQ gives each message to one. These act on all three:
   #   docker compose stop worker     # orders still return 201; RabbitMQ's UI shows the messages waiting
   #   docker compose start worker    # they drain the queue
@@ -141,6 +146,8 @@ services:
     stop_grace_period: 30s
     restart: unless-stopped
     depends_on:
+      migrator:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       # Not awaited: the worker keeps trying until RabbitMQ is up

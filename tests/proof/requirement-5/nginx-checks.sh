@@ -17,6 +17,7 @@ export LC_ALL=C # decimal points in printf, whatever the machine's locale
 
 readonly PREFIX=shop-r5-nginx
 readonly NETWORK=$PREFIX IMAGE=$PREFIX-api NGINX_IMAGE=nginx:1.30.7-alpine
+readonly IMAGES=$PREFIX-images
 readonly PROXY=$PREFIX NGINX=http://127.0.0.1:58080
 readonly CATEGORY=019a2180-0000-7000-8000-000000000003 # Home, seeded with the schema
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/$PREFIX.XXXXXX")
@@ -55,7 +56,8 @@ cleanup() {
     rm -rf "$PROFILE"
   fi
   docker rm -f "$PROXY" "$PREFIX-api1" "$PREFIX-api2" "$PREFIX-api3" "$PREFIX-postgres" "$PREFIX-redis" \
-    "$PREFIX-test" >/dev/null 2>&1 || true
+    "$PREFIX-test" "$PREFIX-migrator" >/dev/null 2>&1 || true
+  docker volume rm "$IMAGES" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   docker image rm "$IMAGE" >/dev/null 2>&1 || true
 }
@@ -63,9 +65,10 @@ cleanup() {
 # One API instance. Its name on the network is apiN, the name the Nginx config uses
 start_api() {
   docker run -d --name "$PREFIX-api$1" --network "$NETWORK" --network-alias "api$1" \
+    -v "$IMAGES:/data/images" \
     -e ASPNETCORE_ENVIRONMENT=Production \
     -e ConnectionStrings__Shop="Host=postgres;Port=5432;Database=shop;Username=shop;Password=shop" \
-    -e ConnectionStrings__Redis=redis:6379 -e Images__RootPath=/tmp/images \
+    -e ConnectionStrings__Redis=redis:6379 -e Images__RootPath=/data/images \
     -e Jwt__SigningKey="$JWT_KEY" -e Admin__Email=admin@shop.local -e Admin__Password='Admin123!' \
     -e DemoSeed__Enabled=true -e Cors__AllowedOrigins__0=http://localhost:5173 \
     -e Inventory__Address=http://127.0.0.1:1 \
@@ -126,15 +129,24 @@ dotnet publish src/Shop.Api/Shop.Api.csproj -c Release -o "$WORK/publish" -p:Use
 # Step 8's page, served next to the live pages in this image only
 mkdir -p "$WORK/publish/wwwroot/app/checks"
 cp tests/proof/requirement-5/live-check/* "$WORK/publish/wwwroot/app/checks/"
-printf 'FROM mcr.microsoft.com/dotnet/aspnet:10.0\nWORKDIR /app\nCOPY . .\nUSER $APP_UID\nENTRYPOINT ["dotnet", "Shop.Api.dll"]\n' |
+printf 'FROM mcr.microsoft.com/dotnet/aspnet:10.0\nWORKDIR /app\nRUN mkdir -p /data/images && chown $APP_UID:$APP_UID /data/images\nCOPY . .\nUSER $APP_UID\nENTRYPOINT ["dotnet", "Shop.Api.dll"]\n' |
   docker build -q -t "$IMAGE" -f - "$WORK/publish" >/dev/null
 say "built the API image from dotnet publish"
 docker network create "$NETWORK" >/dev/null
+docker volume create "$IMAGES" >/dev/null
 docker run -d --name "$PREFIX-postgres" --network "$NETWORK" --network-alias postgres \
   -e POSTGRES_USER=shop -e POSTGRES_PASSWORD=shop -e POSTGRES_DB=shop postgres:18 >/dev/null
 docker run -d --name "$PREFIX-redis" --network "$NETWORK" --network-alias redis redis:8.10.3-alpine >/dev/null
 wait_for "Postgres" 60 docker exec "$PREFIX-postgres" pg_isready -q -h 127.0.0.1 -U shop -d shop
 say "network $NETWORK with Postgres and Redis"
+docker run --rm --name "$PREFIX-migrator" --network "$NETWORK" -v "$IMAGES:/data/images" \
+  -e ASPNETCORE_ENVIRONMENT=Production \
+  -e ConnectionStrings__Shop='Host=postgres;Port=5432;Database=shop;Username=shop;Password=shop' \
+  -e ConnectionStrings__Redis=redis:6379 -e Images__RootPath=/data/images \
+  -e Admin__Email=admin@shop.local -e Admin__Password='Admin123!' -e DemoSeed__Enabled=true \
+  "$IMAGE" --migrate-and-seed >"$WORK/migrator.log" 2>&1 ||
+  { cat "$WORK/migrator.log" >&2; fail "explicit database initialization failed"; }
+say "migrator initialized all schemas and demo images before any instance started (R5-04)"
 
 step "1. The config: Nginx $(docker run --rm --entrypoint nginx "$NGINX_IMAGE" -v 2>&1 | sed 's/.*nginx\///') accepts it while no instance exists yet"
 test_config() {
@@ -149,7 +161,7 @@ say "                              $(docker run --rm --network "$NETWORK" -v "$W
 
 step "2. resolve: Nginx starts with api1 and api2; api3 starts later and gets traffic without a reload"
 start_api 1
-wait_for "api1 to start (it migrates and seeds)" 120 listening 1
+wait_for "api1 to start" 60 listening 1
 start_api 2
 wait_for "api2 to start" 60 listening 2
 docker run -d --name "$PROXY" --network "$NETWORK" -p 127.0.0.1:58080:80 \

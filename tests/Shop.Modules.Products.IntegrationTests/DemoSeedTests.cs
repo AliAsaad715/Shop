@@ -9,6 +9,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Shop.Modules.Products.Data;
 using Shop.Modules.Products.Seeding;
+using Shop.SharedKernel.Persistence;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -57,8 +58,7 @@ public sealed partial class DemoSeedTests(DemoSeedFixture fixture) : IClassFixtu
         }
 
         var imagesBefore = Directory.GetFiles(fixture.ImageRoot, "*", SearchOption.AllDirectories).Length;
-        var seeder = fixture.App.Services.GetServices<IHostedService>().OfType<DemoProductSeeder>().Single();
-        await seeder.StartAsync(CancellationToken.None); // what a restart does
+        await fixture.App.InitializeModuleDatabasesAsync();
 
         await using (var scope = fixture.App.Services.CreateAsyncScope())
         {
@@ -138,7 +138,8 @@ public sealed class DemoSeedFixture : IAsyncLifetime
             await DeleteDemoProductsAsync(context);
         }
 
-        // Starting the host runs the seeder, as it does in the API
+        // Initialization is explicit in every environment; starting the host never seeds.
+        await App.InitializeModuleDatabasesAsync();
         await App.StartAsync();
     }
 

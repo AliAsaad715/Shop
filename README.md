@@ -23,11 +23,13 @@ For local HTTPS, start PostgreSQL with `docker compose up -d postgres`, configur
 
 ```powershell
 $env:Jwt__SigningKey = '<your base64 signing key>'
+dotnet run --project src/Shop.Api -- --migrate-and-seed
 dotnet run --project src/Shop.Api --launch-profile https
 ```
 
 Open `https://localhost:7080/docs`; HTTP on port 5080 redirects to that HTTPS listener.
-The `http` launch profile and default Compose setup support HTTP-only local demos.
+The `http` launch profile and default Compose setup support HTTP-only local demos. Database initialization is
+explicit in every environment, including Development; a normal API or worker run never migrates or seeds (R5-04).
 
 ## Browser security (task 13)
 
@@ -138,9 +140,9 @@ reserve them in the warehouse:
 | `…0205` | Limited Edition Desk Lamp (product X, for the race demo) | 1 |
 | `…0206` | Trail Running Shoes (sold out) | 0 |
 
-All IDs start `019a2180-0000-7000-8000-000000000`. The app adds them when `DemoSeed__Enabled` is `true`,
+All IDs start `019a2180-0000-7000-8000-000000000`. The migrator adds them when `DemoSeed__Enabled` is `true`,
 which compose sets by default (`DEMO_SEED_ENABLED` in `.env`). Production and the tests leave it off.
-Existing products are never changed on restart. `DemoSeedTests` fails if `002_seed.sql` and the app's
+Existing products are never changed by repeated initialization. `DemoSeedTests` fails if `002_seed.sql` and the app's
 list of demo products drift apart. Products created later through the API have no stock row, so the
 warehouse counts them as 0 available.
 
@@ -497,7 +499,7 @@ keep using `ConnectionStrings:Shop`. Enable it only after R3-10's replica has co
 
 | Operation | Database/cache |
 | --- | --- |
-| Writes, startup migrations, seeders and pending-release work | Primary |
+| Writes, explicit migrations/seeding and pending-release work | Primary |
 | Login, registration, roles and current-user reads | Primary |
 | Order creation's current-price catalog contract | Primary |
 | Catalog cache hits | Existing L1/Redis; a recent writer bypasses both |
@@ -873,7 +875,8 @@ Stopping is graceful (`docker compose stop` sends SIGTERM; `stop_grace_period` i
 3. Give the prefetched messages that never started back with `basic.nack`. Since RabbitMQ 4.3 a nack doesn't count
    as a failed delivery, so a restart never uses up a message's retries. A failure uses `basic.reject`, which does.
 
-The emails go out over SMTP (task R4-04, below). The worker migrates only its own `notifications` schema at startup.
+The emails go out over SMTP (task R4-04, below). The migrator prepares the `notifications` schema before any worker
+starts; workers never apply migrations themselves (R5-04).
 
 ```sh
 docker compose stop worker      # place orders: each returns 201 at once
@@ -1038,7 +1041,8 @@ send to a real SMTP provider or require its credentials.
 | DLQ move-back preserves the ID/type/body and resets the failure budget | Existing `ConsumerTests.MovingTheDlqBackGivesTheMessageAllItsTriesAgain` |
 | Customer refused at admin negotiate and direct WebSocket handshake | Existing `SignalRSecurityTests.CustomerCannotOpenTheAdminChannel`, strengthened for the direct handshake |
 
-`R409ApiFixture` runs the actual `Shop.Api.Program` with production JWT validation, migrations, outbox relay,
+`R409ApiFixture` explicitly initializes the test database before starting the actual `Shop.Api.Program` host with
+production JWT validation, outbox relay,
 publisher and live consumer. Each test has one database for all module schemas; its temporary live queue and API
 host are disposed between cases. Existing smaller module and SignalR tests remain in place.
 
@@ -1173,15 +1177,14 @@ RabbitMQ gives each message to one of them; `docker compose stop worker` stops a
   comes from `INSTANCE_NAME`, which Compose sets per instance, and also names each instance's RabbitMQ connection
   (`shop-api api2`); a worker names its connection after its container. Compose already starts each log line with the
   container's name, such as `api2-1`.
-- `api1` starts first, and the other two wait for its healthcheck: on an empty database it applies the migrations and
-  seeds alone, so the instances never race (local-state audit, finding 1). R5-04's migrator will take that work over.
-  The healthcheck asks `/health` with bash, as the image has no curl. The workers start together: each applies the
-  notifications schema, whose single migration EF Core's lock keeps safe.
+- All three API instances and all three workers wait for `migrator` to exit successfully (R5-04); api2 and api3
+  no longer depend on api1. The API healthcheck asks `/health` with bash, as the image has no curl. None of the
+  runtime hosts applies migrations or seeds data.
 - The three instances share the `images` volume, so an upload through one is found by all, as long as they share a
   machine (finding 4; R5-07 moves images to object storage).
 - k6 (`perf/run.sh`), the perf proofs and the Requirement 4 proof kit reach the API through Nginx; commands that named
   the `api` service now name `api1 api2 api3`. YAML merges are shallow, so each instance merges the shared environment
-  and dependencies before adding its own.
+  before adding its name; the migrator overrides its inherited dependencies to wait only for PostgreSQL.
 
 The checks start the whole stack as a separate Compose project, on empty volumes and other ports, so the stack you run
 is never touched:
@@ -1190,12 +1193,65 @@ is never touched:
 tests/proof/requirement-5/compose-checks.sh   # about two minutes; Docker, .NET SDK, curl, jq, a .env with JWT_SIGNING_KEY
 ```
 
-In the [saved run](tests/proof/requirement-5/results), everything was healthy after 17 s; api2 and api3 started 5 s
+In the historical R5-03 [saved run](tests/proof/requirement-5/results/compose-checks-20261121T154951Z.txt), before the
+migrator was introduced, everything was healthy after 17 s; api2 and api3 started 5 s
 after api1, and only api1 applied migrations or seeded. 300 requests through Nginx split 100/100/100 by `X-Instance`,
 and k6 with 10 users for 10 s got 10,504, 10,306 and 10,501 answers with no failures. An order placed through Nginx
 returned 201, and one of the three workers sent its email.
 
 An existing stack still has the old `api` container: `docker compose up -d --build --remove-orphans` removes it.
+
+## Explicit migrations and seeding (task R5-04)
+
+`docker compose up -d --build --wait` runs `migrator` from the same `shop-api` image as the three API instances.
+It waits only for a healthy PostgreSQL, applies the Users, Products, Orders and Notifications migrations to the
+primary connection (`ConnectionStrings:Shop`), then seeds the admin and the optional demo catalog. It never starts
+an HTTP listener, a RabbitMQ connector or a background consumer. Redis cache invalidation remains best effort;
+RabbitMQ or the warehouse being down cannot block initialization.
+
+The migrator shares the `images` volume with the API instances, so the demo PNGs remain available after it exits.
+It has no published port, no HTTP healthcheck and no restart policy. `Exited (0)` is its successful final state,
+not an unhealthy API. Compose starts the API instances and workers only after that successful exit:
+
+```sh
+docker compose ps -a migrator
+docker compose logs migrator
+```
+
+Seeding runs only on explicit initialization. An existing admin keeps its password, and existing demo products,
+their edits and their images are preserved. Missing admin credentials log a warning and skip that seed;
+`DEMO_SEED_ENABLED=false` skips the demo catalog. An invalid seed password or a failed migration returns exit code
+1 and prevents new dependent hosts from starting. Completed migrations are retained if a later seed fails, so
+correcting the cause and repeating initialization is safe.
+
+For a failed Compose initialization, correct the configuration, ensure PostgreSQL is running, and recreate the
+actual migrator service before starting the rest:
+
+```sh
+docker compose up -d postgres
+docker compose up --no-deps --force-recreate --exit-code-from migrator migrator
+docker compose up -d --wait
+```
+
+After code changes, build the updated image first (`docker compose build api1 worker`), then use the same sequence
+to apply new migrations before starting the updated runtime hosts. An ordinary `docker compose restart api1 api2
+api3 worker` does not initialize the database. A one-off `docker compose run --rm --no-deps migrator` can explicitly
+rerun initialization against an existing database, but it does not repair the exit state of a failed Compose
+service; use the recreate sequence above for that.
+
+`MigratorTests` executes the real command against disposable PostgreSQL databases, checking all four schemas,
+repeatability, seed opt-outs, failure/retry and absence of automatic API initialization in Development and Production.
+The updated `compose-checks.sh` proves failure gating, successful retry, image availability on all three instances,
+order/email delivery and runtime restarts. The local-state and Nginx proof scripts also initialize explicitly.
+
+In the [R5-04 verification](tests/proof/requirement-5/results/migrator-verification-20261123.txt), 660 test cases
+passed. The [cold-start audit](tests/proof/requirement-5/results/local-state-checks-r5-04-20261123.txt) had 0 crashes
+in 9 starts, compared with 6 of 9 in the original audit. The
+[Compose proof](tests/proof/requirement-5/results/compose-checks-r5-04-20261123.txt) showed the failed migrator blocking
+all six hosts, then a successful retry before they started; none migrated or seeded, including on restart. Its 300
+requests split 100/100/100, and k6 reported 0% failed requests. The
+[Nginx proof](tests/proof/requirement-5/results/nginx-checks-r5-04-20261123.txt) also passed after explicit initialization;
+its optional browser-only step was skipped because Chrome/Chromium was unavailable.
 
 ## Verify
 

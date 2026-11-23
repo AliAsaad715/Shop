@@ -23,6 +23,9 @@ readonly ROUNDS=${ROUNDS:-3}
 readonly PRODUCT=019a2180-0000-7000-8000-000000000205 # Limited Edition Desk Lamp, from the demo seed
 readonly CATEGORY=019a2180-0000-7000-8000-000000000003 # Home
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/shop-r5-audit.XXXXXX")
+WORK=$(cd "$WORK" && pwd -P)
+[[ "$WORK" == "$(cd "${TMPDIR:-/tmp}" && pwd -P)"/shop-r5-audit.* ]] ||
+  { printf 'Unexpected audit work directory: %s\n' "$WORK" >&2; exit 1; }
 JWT_KEY=$(head -c 32 /dev/urandom | base64)
 readonly WORK JWT_KEY
 declare -A PIDS=()
@@ -66,6 +69,18 @@ start_api() {
   ) >"$WORK/api$n.log" 2>&1 &
   PIDS[$n]=$!
   disown "$!" # bash would print each crash's "Aborted"; check 1 reports it instead
+}
+
+initialize_database() {
+  mkdir -p "$WORK/images-api1"
+  (
+    cd src/Shop.Api
+    env ASPNETCORE_ENVIRONMENT=Production \
+      ConnectionStrings__Shop="Host=127.0.0.1;Port=$POSTGRES_PORT;Database=shop;Username=shop;Password=shop" \
+      ConnectionStrings__Redis="127.0.0.1:$REDIS_PORT" Images__RootPath="$WORK/images-api1" \
+      Admin__Email=admin@shop.local Admin__Password='Admin123!' DemoSeed__Enabled=true \
+      dotnet bin/Release/net10.0/Shop.Api.dll --migrate-and-seed
+  )
 }
 
 state() {
@@ -131,12 +146,14 @@ docker run -d --name "$REDIS" -p "127.0.0.1:$REDIS_PORT:6379" redis:8.10.3-alpin
 wait_for "Postgres to accept connections" 60 docker exec "$POSTGRES" pg_isready -q -h 127.0.0.1 -U shop -d shop
 say "throwaway Postgres on 127.0.0.1:$POSTGRES_PORT and Redis on 127.0.0.1:$REDIS_PORT"
 
-step "1. Migrations and seeding at startup: three instances start at once on an empty database ($ROUNDS rounds)"
+step "1. Explicit migrator, then three instances start at once ($ROUNDS empty-database rounds; R5-04)"
 crashes=0
 for round in $(seq 1 "$ROUNDS"); do
   DB=postgres sql -c 'DROP DATABASE IF EXISTS shop WITH (FORCE)' -c 'CREATE DATABASE shop'
   docker exec "$REDIS" redis-cli FLUSHALL >/dev/null
   rm -rf "$WORK"/images-api*
+  initialize_database >"$WORK/round$round-migrator.log" 2>&1 ||
+    { cat "$WORK/round$round-migrator.log" >&2; fail "migrator failed in round $round"; }
   for n in 1 2 3; do start_api "$n"; done
   wait_started_or_crashed 1 2 3
   for n in 1 2 3; do
@@ -152,6 +169,7 @@ for round in $(seq 1 "$ROUNDS"); do
   stop_apis
 done
 say "-> $crashes of $((ROUNDS * 3)) first starts crashed"
+[[ $crashes == 0 ]] || fail "an instance crashed after explicit initialization"
 for n in 1 2 3; do
   start_api "$n"
   wait_started_or_crashed "$n"
@@ -200,7 +218,7 @@ done
 
 step "4. Product images on local disk: each instance has its own folder, like containers without a shared volume"
 seeded=$(curl -s "$(api 1)/api/v1/products/$PRODUCT" | jq -r .imageUrl)
-say "a demo image seeded at startup:   api1 $(code "$(api 1)$seeded"), api2 $(code "$(api 2)$seeded"), api3 $(code "$(api 3)$seeded")"
+say "a demo image seeded by migrator:  api1 $(code "$(api 1)$seeded"), api2 $(code "$(api 2)$seeded"), api3 $(code "$(api 3)$seeded")"
 png=$(find "$WORK"/images-api? -type f -name '*.png' -print -quit)
 [[ -n $png ]] || fail "no seeded image was found in any instance's folder"
 uploaded=$(curl -s -H "Authorization: Bearer $token" -F name='Audit upload' -F description='R5-01 image check' \

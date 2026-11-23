@@ -6,7 +6,7 @@ Run from the repository root with Docker available:
 dotnet test tests/Shop.Api.ConformanceTests
 ```
 
-The full-host tests use WebApplicationFactory against the actual Shop.Api Program, real module registrations, startup migrations, versioned routes and error middleware. PostgreSQL 18 is provisioned with Testcontainers. Alternatively, set `SHOP_CONFORMANCE_TEST_CONNECTION` to a dedicated disposable database. These tests apply migrations and create customer accounts; do not point them at shared or production data.
+The full-host tests use WebApplicationFactory against the actual Shop.Api Program, real module registrations, versioned routes and error middleware. The fixtures explicitly initialize their databases before starting the host; normal application startup never migrates or seeds (R5-04). PostgreSQL 18 is provisioned with Testcontainers. Alternatively, set `SHOP_CONFORMANCE_TEST_CONNECTION` to a dedicated disposable database. These tests apply migrations and create customer accounts; do not point them at shared or production data.
 
 The fixture is scoped to this conformance project while task 07's shared test setup is unavailable. It creates a random signing key for the test host and does not provide production JWT token helpers. A test-only authentication scheme supplies an authenticated identity solely for Cache-Control checks. It does not inject security headers or replace the production error/versioning middleware. HTTPS requests use `shop.test` so HSTS is not accidentally exempted as localhost; TestServer simulates the HTTPS request scheme and does not test TLS itself.
 

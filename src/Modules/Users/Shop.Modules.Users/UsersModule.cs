@@ -54,7 +54,7 @@ public static class UsersModule
         services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>(includeInternalTypes: true);
 
         services.AddOptions<AdminSeedOptions>().BindConfiguration(AdminSeedOptions.Section);
-        services.AddHostedService<AdminSeeder>();
+        services.AddScoped<IModuleSeeder, AdminSeeder>();
 
         return services;
     }

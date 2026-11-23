@@ -12,7 +12,10 @@ using Shop.SharedKernel.Diagnostics;
 using Shop.SharedKernel.Errors;
 using Shop.SharedKernel.Persistence;
 
-var builder = WebApplication.CreateBuilder(args);
+const string migrationArgument = "--migrate-and-seed";
+var migrateAndSeed = args.Contains(migrationArgument, StringComparer.Ordinal);
+// This standalone switch belongs to the entry point, not the key/value configuration provider.
+var builder = WebApplication.CreateBuilder(args.Where(argument => argument != migrationArgument).ToArray());
 builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
 
 // api1, api2 or api3 when Compose runs three instances behind Nginx (task R5-03); null otherwise
@@ -24,6 +27,12 @@ builder.Services
     .AddOrdersModule()
     .AddNotificationsModule();
 
+if (migrateAndSeed)
+{
+    // The API's realtime side has no database registration; the worker owns this fourth schema.
+    builder.Services.AddNotificationsPersistence();
+}
+
 // RabbitMQ (task R4-01): connects in the background and declares the topology; Degraded while it's down. Each instance
 // names its connection, so RabbitMQ's UI tells the three apart (R5-03)
 builder.Services.AddShopMessaging(instanceName is null ? "shop-api" : $"shop-api {instanceName}");
@@ -33,10 +42,22 @@ builder.Services.AddVersionedApiDocs();
 builder.Services.AddHealthChecks();
 builder.Services.AddBrowserSecurity();
 
-var app = builder.Build();
+await using var app = builder.Build();
 
-// Every module's schema is current before the first request
-await app.MigrateModuleDatabasesAsync();
+if (migrateAndSeed)
+{
+    try
+    {
+        // Do not start this host: no listener, RabbitMQ connection, relay or consumer is needed to initialize data.
+        await app.InitializeModuleDatabasesAsync();
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        app.Logger.LogCritical(exception, "Database initialization failed");
+        return 1;
+    }
+}
 
 // First, so every response says which instance answered, errors included (task R5-03)
 app.UseInstanceHeader(instanceName);
@@ -78,7 +99,8 @@ api.MapUsersEndpoints();
 api.MapProductsEndpoints();
 api.MapOrdersEndpoints();
 
-app.Run();
+await app.RunAsync();
+return 0;
 
 // Exposes the real host entry point to WebApplicationFactory without exposing module internals.
 public partial class Program

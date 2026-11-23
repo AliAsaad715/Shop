@@ -18,6 +18,7 @@ using Shop.Messaging;
 using Shop.Modules.Notifications.Realtime;
 using Shop.Modules.Products.Contracts;
 using Shop.SharedKernel.Auth;
+using Shop.SharedKernel.Persistence;
 using Testcontainers.PostgreSql;
 using Testcontainers.RabbitMq;
 using Xunit;
@@ -153,6 +154,14 @@ public sealed class R409ApiFixture : IAsyncLifetime
 internal sealed class R409ApiFactory(string connectionString, Dictionary<string, string?> messagingSettings)
     : WebApplicationFactory<global::Program>
 {
+    protected override IHost CreateHost(IHostBuilder builder)
+    {
+        var host = builder.Build();
+        host.InitializeModuleDatabasesAsync().GetAwaiter().GetResult();
+        host.Start();
+        return host;
+    }
+
     internal static readonly Uri BaseAddress = new("https://shop.test");
     private readonly byte[] _key = RandomNumberGenerator.GetBytes(32);
     private readonly SignalRApi.ConnectedConnections _connections = new();

@@ -12,6 +12,26 @@ public static class ModuleMigrationExtensions
     private const int MaxDelaySeconds = 10;
 
     /// <summary>
+    /// Initializes the database without starting the host or any of its background services.
+    /// Every schema is migrated before seeders run, in their registration order.
+    /// </summary>
+    public static async Task InitializeModuleDatabasesAsync(this IHost host, CancellationToken cancellationToken = default)
+    {
+        var logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(ModuleMigrationExtensions));
+        logger.LogInformation("Applying module migrations");
+        await host.MigrateModuleDatabasesAsync(cancellationToken);
+
+        await using var scope = host.Services.CreateAsyncScope();
+        foreach (var seeder in scope.ServiceProvider.GetServices<IModuleSeeder>())
+        {
+            logger.LogInformation("Running module seeder {Seeder}", seeder.GetType().Name);
+            await seeder.SeedAsync(cancellationToken);
+        }
+
+        logger.LogInformation("Database initialization completed");
+    }
+
+    /// <summary>
     /// Applies every module's pending migrations, retrying while the database can't be reached,
     /// such as while its container is still starting.
     /// </summary>

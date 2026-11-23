@@ -1,21 +1,22 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Shop.Modules.Users.Domain;
 using Shop.SharedKernel.Auth;
+using Shop.SharedKernel.Persistence;
 
 namespace Shop.Modules.Users.Seeding;
 
-// Runs when the host starts, after Program.cs has migrated the database
+// Called explicitly by the migrator after all module migrations have completed.
 internal sealed class AdminSeeder(
     IServiceScopeFactory scopeFactory,
     IOptions<AdminSeedOptions> options,
-    ILogger<AdminSeeder> logger) : IHostedService
+    ILogger<AdminSeeder> logger) : IModuleSeeder
 {
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public async Task SeedAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var admin = options.Value;
         if (string.IsNullOrWhiteSpace(admin.Email) || string.IsNullOrWhiteSpace(admin.Password))
         {
@@ -41,9 +42,7 @@ internal sealed class AdminSeeder(
         }
     }
 
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
-    // A weak seed password should stop startup, not leave the API without an admin
+    // A weak seed password should fail initialization rather than silently leave the API without an admin
     private static void EnsureSucceeded(IdentityResult result, string action)
     {
         if (!result.Succeeded)
