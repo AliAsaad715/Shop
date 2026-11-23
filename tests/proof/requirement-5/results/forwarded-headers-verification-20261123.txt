@@ -1,0 +1,40 @@
+R5-05 verification - 2026-11-23
+
+Base: main at 0c49ca8 (R5-04 merged).
+Before proof compiled the unchanged API and Nginx configuration from that base.
+After proof compiled the feature working tree based on the same commit; the feature commit includes these results.
+
+Build: dotnet build Shop.slnx -m:1 -nr:false --no-restore
+Result: succeeded with 0 warnings and 0 errors.
+Tests: dotnet test Shop.slnx --no-build -m:1 -nr:false
+Result: 690 passed, 0 failed, 0 skipped across 11 suites.
+Thirty forwarding/configuration cases are included in the API suite.
+The proxy suite was checked again after strengthening the trusted-rightmost-hop case: 30 passed.
+
+Suite                      Passed
+API conformance            75
+API integration            125
+Architecture               28
+Messaging integration      31
+Notifications integration  58
+Orders integration         48
+Orders unit                49
+Products integration       153
+Products unit              27
+Users integration          67
+Users unit                 29
+
+Before: client1 401 401 401 401 401 429; client2 first attempt 429.
+After:  client1 401 401 401 401 401 429; client2 first attempt 401.
+Forged X-Forwarded-For changes cannot reset the client quota; app and Nginx logs match the real clients.
+OpenAPI keeps http://shop.forwarded.test:8080/ despite forged forwarded proto/host headers.
+
+Compose configuration and trust/network CIDR invariants passed.
+Compose proof: isolated subnet 172.30.51.0/24; three APIs and three workers, migrator gating, images, docs, order/email and restarts passed.
+Nginx proof: configuration, DNS resolution, upload limits, six WebSockets, stop/start failover passed.
+The optional browser-only Nginx step was skipped because Chrome/Chromium was not available to the test environment.
+The .NET suites have no skips. All four proof scripts passed bash -n.
+Proofs ran on Windows using Git Bash and local host-path adapters; Linux/WSL can run the scripts directly.
+All runtime proofs used disposable projects/networks/ports and did not recreate the running shop network.
+Existing-network rollout: docker compose down (without -v), then docker compose up -d --build --wait.
+R5-06 distributed rate-limit counters remain separate.

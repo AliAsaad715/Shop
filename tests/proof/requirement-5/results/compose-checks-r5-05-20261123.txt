@@ -1,0 +1,45 @@
+== Setup
+   work folder: /tmp/shop-r5-compose.rlNzvO
+   built the API's and the worker's images from dotnet publish; project shop-r5-compose, Nginx on http://localhost:58180
+
+== 0. A failed migrator blocks API instances and workers on empty volumes (R5-04)
+   migrator exited 1; none of the three API instances or three workers started
+
+== 1. Correct the password and retry on the same database
+   every service up and healthy after 9 s:
+     api1          Up 4 seconds (healthy)
+     api2          Up 4 seconds (healthy)
+     api3          Up 4 seconds (healthy)
+     inventory     Up 18 seconds (healthy)
+     inventory-db  Up 23 seconds (healthy)
+     mailpit       Up 23 seconds (healthy)   127.0.0.1:51025->1025, 127.0.0.1:58025->8025
+     nginx         Up 3 seconds   0.0.0.0:58180->80
+     postgres      Up 23 seconds (healthy)   127.0.0.1:55433->5432
+     rabbitmq      Up 23 seconds (healthy)   127.0.0.1:55672->5672, 127.0.0.1:55673->15672
+     redis         Up 23 seconds (healthy)   127.0.0.1:56380->6379
+     worker        3 x Up 3 seconds
+   services publishing a port: mailpit nginx postgres rabbitmq redis; none of api1-api3
+   migrator exited 0 before every API instance and worker started; api2/api3 no longer wait for api1
+
+== 2. Only migrator initializes; runtime hosts never migrate or seed
+   api1: 0 migrations applied, 0 seeding steps, 0 crashes
+   api2: 0 migrations applied, 0 seeding steps, 0 crashes
+   api3: 0 migrations applied, 0 seeding steps, 0 crashes
+   worker: 0 migrations applied, 0 seeding steps, 0 crashes
+   worker restarts: 0 0 0 (notifications schema prepared by migrator)
+   demo image is available on api1/api2/api3 through the shared images volume; /docs returns 200 after its redirect
+
+== 3. X-Instance through Nginx
+   GET /health: X-Instance api3; a 404: X-Instance api1
+   300 requests one after another: api1 100, api2 100, api3 100
+
+== 4. RabbitMQ tells the connections apart
+   connections: shop-api api1, shop-api api2, shop-api api3, shop-worker 4233cd62aeef, shop-worker a6293609185a, shop-worker d6dc805cdac0
+   consumers of the email queue: 3
+
+== 5. An order through Nginx, and k6
+   POST /api/v1/orders: 201 from api1; its email sent by worker-1
+   k6, 10 users for 10 s through Nginx (as perf/run.sh points it): api1 18593, api2 18314, api3 17324; failed requests 0.00%
+
+== 6. Explicit initialization is repeatable; restarting runtime hosts never initializes
+   explicit rerun preserved the catalog; all six runtime hosts restarted without initialization

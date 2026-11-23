@@ -34,7 +34,7 @@ a closed port, so the API runs Degraded without them, as designed.
 | --- | --- | --- | --- | --- |
 | 1 | Migrations and seeding run in every instance at startup | Instances race on an empty database and crash | 6 of 9 first starts crashed | R5-04 |
 | 2 | The login limiter counts in memory | Each instance allows its own 5 tries a minute | 15 tries before the first 429 | R5-06 |
-| 3 | The limiter keys on the connection's address | Behind Nginx, every caller shares one bucket | needs Nginx; from the code | R5-05 |
+| 3 | The limiter keys on the connection's address | Behind Nginx, every caller shares one bucket | before: client 2 starts at 429; after: independent 401 | R5-05 |
 | 4 | Product images are on the local disk | An image exists only on the instance that saved it | 3 of 9 requests found the image | R5-07 |
 | 5 | HybridCache keeps a local copy | Other instances serve an edited product's old data | old name for about 4–5 s | R5-08 |
 | 6 | Each instance may open 100 database connections | Three can ask for 300; Postgres allows 100 | one instance already reached 99 | R5-09 |
@@ -109,7 +109,10 @@ takes `Connection.RemoteIpAddress` and, on purpose, ignores forwarding headers a
 **What goes wrong.** Behind Nginx, every request comes from Nginx's address, so all callers share one bucket: five
 wrong passwords from anyone block every login for a minute.
 
-**What the run showed.** Nothing yet: it needs Nginx (R5-02). The finding is from the code.
+**What the R5-05 run showed.** With two different client-container IPs and one API behind Nginx, client 1 got five
+401s followed by a 429. Before the fix, client 2's very first request also got 429; after it, client 2 got its own
+401. Changing forged forwarding headers could not bypass the limit. One API keeps this proof independent of
+R5-06's separate cross-instance counter problem.
 
 **Fix: R5-05.** `UseForwardedHeaders`, trusting `X-Forwarded-For` only from the Docker network Nginx is on, so a
 client still can't choose its own address by sending the header itself.
@@ -117,6 +120,17 @@ client still can't choose its own address by sending the header itself.
 **Before → after.** Log the limiter's key: before, Nginx's address for every caller; after, the caller's. From the
 host, Docker usually shows every client to Nginx as the network's gateway address, so a demo with two different
 clients needs one of them to call from inside a container.
+
+**Implemented in R5-05.** The API accepts one hop of client address and scheme from the explicitly configured
+Docker subnet only, before security and rate limiting. Nginx replaces incoming forwarding values with its own
+observations in both API and hub locations. The original Host/port stays intact, and untrusted forwarded hosts
+are ignored. Each login attempt logs the same normalized client IP used for its quota. The network CIDR and API
+trust range share one Compose variable; direct local runs disable forwarding by default. The proof is
+[`forwarded-headers-checks.sh`](../../tests/proof/requirement-5/forwarded-headers-checks.sh), with `before` and `after`
+phases. Both the API and Nginx logs identify the distinct clients after the fix.
+Saved evidence: [before](../../tests/proof/requirement-5/results/forwarded-headers-before-20261123.txt),
+[after](../../tests/proof/requirement-5/results/forwarded-headers-after-20261123.txt), and
+[verification](../../tests/proof/requirement-5/results/forwarded-headers-verification-20261123.txt).
 
 ### 4. Product images are on the local disk
 

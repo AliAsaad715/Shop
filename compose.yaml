@@ -15,6 +15,9 @@ x-api: &api
     dockerfile: src/Shop.Api/Dockerfile
   environment: &api-environment
     ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+    # One source for the actual network and the API's trust boundary (R5-05).
+    ReverseProxy__Enabled: "true"
+    ReverseProxy__TrustedNetworks__0: ${SHOP_NETWORK_SUBNET:-172.30.50.0/24}
     Images__RootPath: /data/images
     ConnectionStrings__Shop: Host=postgres;Port=5432;Database=${POSTGRES_DB:-shop};Username=${POSTGRES_USER:-shop};Password=${POSTGRES_PASSWORD:-shop}
     ConnectionStrings__ShopRead: Host=db-replica,postgres;Port=5432;Database=${POSTGRES_DB:-shop};Username=${POSTGRES_USER:-shop};Password=${POSTGRES_PASSWORD:-shop};Target Session Attributes=prefer-standby;Timeout=2;Host Recheck Seconds=5
@@ -345,6 +348,10 @@ services:
       start_interval: 1s
 
 networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${SHOP_NETWORK_SUBNET:-172.30.50.0/24}
   # Only the warehouse and its database; internal, so nothing on it reaches outside Docker
   inventory-data:
     internal: true
