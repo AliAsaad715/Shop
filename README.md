@@ -56,9 +56,9 @@ CORS controls browser access and does not replace endpoint authentication or aut
 
 HTTPS redirection uses the configured or discovered HTTPS port. HTTP-only setups have no
 redirect target. Production deployments must provide HTTPS through a Kestrel certificate or
-a TLS proxy; the HTTP demo configuration does not provide production TLS. Configure trusted
-forwarded headers before HSTS/redirection when deploying behind a proxy; raw forwarding
-headers are not trusted by this application. See Microsoft's [HTTPS deployment guidance](https://learn.microsoft.com/aspnet/core/security/enforcing-ssl?view=aspnetcore-10.0).
+a TLS proxy; the HTTP demo configuration does not provide production TLS. R5-05 processes forwarded
+headers before HSTS/redirection only from the configured Docker network; direct local runs ignore them by default.
+See Microsoft's [HTTPS deployment guidance](https://learn.microsoft.com/aspnet/core/security/enforcing-ssl?view=aspnetcore-10.0).
 
 HSTS is sent for HTTPS in non-Development environments, with a 180-day maximum age.
 It is omitted over HTTP and on the framework's excluded localhost addresses. Local
@@ -1252,6 +1252,71 @@ all six hosts, then a successful retry before they started; none migrated or see
 requests split 100/100/100, and k6 reported 0% failed requests. The
 [Nginx proof](tests/proof/requirement-5/results/nginx-checks-r5-04-20261123.txt) also passed after explicit initialization;
 its optional browser-only step was skipped because Chrome/Chromium was unavailable.
+
+## Trusted proxy headers and real client addresses (task R5-05)
+
+Compose uses `SHOP_NETWORK_SUBNET` (default `172.30.50.0/24`) both for its default network's IPAM and for the three
+API instances' trusted forwarding range. All containers on that network are inside this trust boundary. The API
+processes only `X-Forwarded-For` and `X-Forwarded-Proto`, for one proxy hop, before HTTPS redirection, HSTS and the
+login limiter. Its default loopback trust is removed. `X-Forwarded-Host` is not processed: Nginx already preserves
+the original `Host`, including its port, with `$http_host`.
+
+Nginx is the public edge. In both `/` and `/hubs/` it replaces any supplied `X-Forwarded-For` chain with
+`$remote_addr`, and any `X-Forwarded-Proto` with `$scheme`. Both header lists must have the same length. Direct
+requests from outside the trusted range cannot select their client address or protocol using these headers.
+The limiter reads the resulting `Connection.RemoteIpAddress`, normalizes IPv4-mapped IPv6, and logs one
+`Login rate-limit partition {ClientIp} trace {TraceId}` entry per login request, including a rejected request.
+Nginx's access log continues to record the caller and to hide SignalR access tokens. No credentials or request
+bodies are added to the application log.
+
+Direct `dotnet run` uses `ReverseProxy:Enabled=false` and an empty `ReverseProxy:TrustedNetworks` by default,
+in Development and Production. To run behind a trusted proxy outside Compose, explicitly set:
+
+```text
+ReverseProxy__Enabled=true
+ReverseProxy__TrustedNetworks__0=172.30.50.0/24
+```
+
+Enabling forwarding without a valid explicit CIDR fails startup; catch-all `/0` ranges are rejected. The app's
+explicit policy also overrides the framework's permissive `ASPNETCORE_FORWARDEDHEADERS_ENABLED` shortcut, so that
+variable cannot replace this configuration. Extra proxy hops or TLS termination in front of Nginx require a
+separate deployment configuration; this setup has one public Nginx hop and serves the local demo over HTTP.
+
+An existing Compose network cannot change its subnet in place. Choose a non-overlapping `SHOP_NETWORK_SUBNET`,
+then recreate the project's containers and network, retaining its database/image/broker volumes:
+
+```sh
+docker compose down                 # without -v: retain data and images
+docker compose up -d --build --wait  # migrator initializes first, then the runtime hosts start
+```
+
+`ForwardedHeadersTests` exercises the real Program pipeline with controlled TestServer connection addresses:
+trusted/untrusted and IPv4-mapped peers, direct-run behavior, malformed/asymmetric headers, one-hop limits,
+OpenAPI URLs, HTTPS/HSTS and independent login quotas with the same normalized key in logs. Configuration tests
+cover invalid CIDRs, missing ranges, catch-all ranges and framework configuration precedence.
+
+The isolated proof uses two client containers and one API, so their actual IPs are distinct even on Docker Desktop,
+and distributed rate-limit counters (R5-06) cannot confuse the result:
+
+```sh
+tests/proof/requirement-5/forwarded-headers-checks.sh before # capture before changing the application
+tests/proof/requirement-5/forwarded-headers-checks.sh        # verify the fixed application
+```
+
+Client 1 gets five 401s and then a 429. Before the fix, client 2's first request is also 429; after it, client 2
+gets its own 401, and forged header changes cannot reset client 1's quota. The script compares both client IPs
+with the application partition logs and Nginx's access log, and checks the external OpenAPI scheme/host/port.
+Compose proofs use a separate test subnet; standalone Nginx proofs discover their disposable network's subnet.
+The login counters remain per API instance until R5-06.
+
+The [R5-05 verification](tests/proof/requirement-5/results/forwarded-headers-verification-20261123.txt) records 690
+passing test cases, including 30 forwarding/configuration cases. The two-client
+[before](tests/proof/requirement-5/results/forwarded-headers-before-20261123.txt) and
+[after](tests/proof/requirement-5/results/forwarded-headers-after-20261123.txt) runs show client 2 changing from a
+shared 429 to its independent 401. The
+[Compose](tests/proof/requirement-5/results/compose-checks-r5-05-20261123.txt) and
+[Nginx](tests/proof/requirement-5/results/nginx-checks-r5-05-20261123.txt) regressions passed; the optional
+browser-only Nginx step was skipped because Chrome/Chromium was unavailable to the script.
 
 ## Verify
 

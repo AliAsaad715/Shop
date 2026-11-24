@@ -67,6 +67,7 @@ start_api() {
   docker run -d --name "$PREFIX-api$1" --network "$NETWORK" --network-alias "api$1" \
     -v "$IMAGES:/data/images" \
     -e ASPNETCORE_ENVIRONMENT=Production \
+    -e ReverseProxy__Enabled=true -e ReverseProxy__TrustedNetworks__0="$subnet" \
     -e ConnectionStrings__Shop="Host=postgres;Port=5432;Database=shop;Username=shop;Password=shop" \
     -e ConnectionStrings__Redis=redis:6379 -e Images__RootPath=/data/images \
     -e Jwt__SigningKey="$JWT_KEY" -e Admin__Email=admin@shop.local -e Admin__Password='Admin123!' \
@@ -133,6 +134,7 @@ printf 'FROM mcr.microsoft.com/dotnet/aspnet:10.0\nWORKDIR /app\nRUN mkdir -p /d
   docker build -q -t "$IMAGE" -f - "$WORK/publish" >/dev/null
 say "built the API image from dotnet publish"
 docker network create "$NETWORK" >/dev/null
+subnet=$(docker network inspect -f '{{(index .IPAM.Config 0).Subnet}}' "$NETWORK")
 docker volume create "$IMAGES" >/dev/null
 docker run -d --name "$PREFIX-postgres" --network "$NETWORK" --network-alias postgres \
   -e POSTGRES_USER=shop -e POSTGRES_PASSWORD=shop -e POSTGRES_DB=shop postgres:18 >/dev/null

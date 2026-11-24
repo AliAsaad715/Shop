@@ -22,6 +22,8 @@ export API_PORT=58180 POSTGRES_PORT=55433 REDIS_PORT=56380 RABBITMQ_PORT=55672 R
   MAILPIT_UI_PORT=58025 MAILPIT_SMTP_PORT=51025 REPLICA_PORT=55434
 # The proof requires the demo catalog and must always capture mail locally, regardless of the developer's .env.
 export DEMO_SEED_ENABLED=true EMAIL_PROVIDER=Mailpit
+# Keep the fixed trust subnet separate from a developer's running shop network (R5-05).
+export SHOP_NETWORK_SUBNET=172.30.51.0/24
 readonly NGINX=http://localhost:$API_PORT RABBIT=http://localhost:$RABBITMQ_UI_PORT MAILPIT=http://localhost:$MAILPIT_UI_PORT
 readonly PRODUCT=019a2180-0000-7000-8000-000000000202 # Cotton T-Shirt; the warehouse seed stocks 100
 

@@ -1,0 +1,12 @@
+== R5-05 before: setup
+   source commit 0c49ca8; work folder /tmp/shop-r5-forwarded.9nl3wX
+   trusted network 172.23.0.0/16; Nginx 172.23.0.4; client1 172.23.0.5; client2 172.23.0.6
+
+== IP quota with forged client-supplied headers
+   client1, six attempts: 401 401 401 401 401 429; client2, its first attempt: 429
+   before: distinct clients share one bucket; the baseline application does not emit partition-key logs
+   Nginx access log contains both client addresses, distinct from 172.23.0.4
+
+== External URL keeps HTTP scheme and Host port despite forged forwarding headers
+   OpenAPI servers: [{"url":"http://shop.forwarded.test:8080/"}]
+   PASS: before

@@ -41,6 +41,7 @@ builder.Services.AddErrorContract();
 builder.Services.AddVersionedApiDocs();
 builder.Services.AddHealthChecks();
 builder.Services.AddBrowserSecurity();
+builder.Services.AddReverseProxyHeaders();
 
 await using var app = builder.Build();
 
@@ -61,6 +62,8 @@ if (migrateAndSeed)
 
 // First, so every response says which instance answered, errors included (task R5-03)
 app.UseInstanceHeader(instanceName);
+// Establish the trusted client address and scheme before HTTPS, security headers and the login limiter (R5-05).
+app.UseReverseProxyHeaders();
 
 // Unhandled exceptions and bare status codes (unknown route, missing token, rate limit) become Problem Details too
 if (!app.Environment.IsDevelopment())
