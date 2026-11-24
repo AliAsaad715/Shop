@@ -35,7 +35,7 @@ a closed port, so the API runs Degraded without them, as designed.
 | 1 | Migrations and seeding run in every instance at startup | Instances race on an empty database and crash | 6 of 9 first starts crashed | R5-04 |
 | 2 | The login limiter counts in memory | Each instance allows its own 5 tries a minute | 15 tries before the first 429 | R5-06 |
 | 3 | The limiter keys on the connection's address | Behind Nginx, every caller shares one bucket | before: client 2 starts at 429; after: independent 401 | R5-05 |
-| 4 | Product images are on the local disk | An image exists only on the instance that saved it | 3 of 9 requests found the image | R5-07 |
+| 4 | Product images are on the local disk | An image exists only on the instance that saved it | before: 3 of 9; after: 9 of 9, no API image mounts | R5-07 |
 | 5 | HybridCache keeps a local copy | Other instances serve an edited product's old data | old name for about 4–5 s | R5-08 |
 | 6 | Each instance may open 100 database connections | Three can ask for 300; Postgres allows 100 | one instance already reached 99 | R5-09 |
 | 7 | SignalR negotiates, then connects | The WebSocket can reach another instance and get 404 | 101 on api1, 404 on api2 | R5-10 |
@@ -142,14 +142,22 @@ used by uploads and by the demo seed ([`DemoProductSeeder.cs:53`](../../src/Modu
 **What the run showed.** An image uploaded through api1 was found by 3 of 9 requests (api1 only). The demo images
 exist only on the instance that won the seeding race (api3 in the saved run); the other two return 404 for them.
 
-**Watch out.** Today's compose mounts a named volume, `images:/data/images`
-([`compose.yaml:38`](../../compose.yaml#L38)). If R5-03 mounts it into all three instances, the check passes on one
-machine and the problem hides until there are two. Show the "before" without a shared folder, as the script does, and
-say why.
+**Watch out.** R5-03 shared `images:/data/images` between the instances. That passes on one machine while hiding
+the problem across hosts. The R5-07 before proof uses separate volumes and the unchanged parent application.
 
-**Fix: R5-07**, object storage.
+**Implemented in R5-07.** SeaweedFS provides authenticated S3 storage on the Compose network, backed by its own
+persistent volume. The three APIs and migrator use the same provider, and none mounts the old image volume. The
+image route and database keys stay unchanged; Local remains an explicit development/test provider. S3 errors are
+503, missing objects 404, and failed product saves attempt compensating deletion without masking the original error.
+The explicit importer mounts the old volume read-only, verifies copied and existing bytes using SHA-256, refuses
+conflicting objects, and checks every referenced product image before returning success. Runtime startup never imports.
 
-**Before → after.** Check 4: before, 3 of 9; after, 9 of 9, demo images included.
+**Before → after.** The isolated upload is found by 3 of 9 reads before, 9 of 9 after, with coverage of all three
+instances and identical hashes. Old demo images are imported, the import repeats without extra writes, and image
+reads survive recreation of the uploader and storage container. An outage returns 503 without creating a product;
+restarting the store recovers. Evidence: [before](../../tests/proof/requirement-5/results/images-before-20261123.txt),
+[after](../../tests/proof/requirement-5/results/images-after-20261123.txt),
+[verification](../../tests/proof/requirement-5/results/images-verification-20261123.txt).
 
 ### 5. HybridCache keeps a local copy
 

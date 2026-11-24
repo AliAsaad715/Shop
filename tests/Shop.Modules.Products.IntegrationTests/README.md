@@ -23,7 +23,9 @@ The upload tests use ASP.NET TestHost and real PostgreSQL, with a test-owned tem
 
 POST `/api/v1/products` accepts multipart `name`, `description`, `price`, `categoryId`, and one `image`. No antiforgery token is needed. Tests cover real JPEG/PNG/WebP files, misleading client filenames/content types, the exact 2 MiB boundary, oversized and unknown-length bodies, malformed fields, duplicate/missing files, cleanup after database/write failures, and serving the same bytes through the returned image URL with `nosniff`.
 
-Local image storage defaults to `App_Data/images` relative to the host content root. Set `Images:RootPath` (`Images__RootPath` in environment variables) to override it. Compose uses `/data/images` on the existing image volume. Only generated keys of the form `products/{uuid-without-dashes}.{jpg|png|webp}` are served at `/images/products/{filename}`. Product detail reads and the Location target are supplied by task 16.
+Local image storage defaults to `App_Data/images` relative to the host content root. Set `Images:RootPath` (`Images__RootPath` in environment variables) to override it; local-file fixtures explicitly select `Images:Provider=Local`.
+Compose selects S3 with SeaweedFS (R5-07), without image-volume mounts on the API instances or migrator. Only generated keys of the form `products/{uuid-without-dashes}.{jpg|png|webp}` are served at `/images/products/{filename}`.
+The S3 collection starts real SeaweedFS 4.53 and PostgreSQL containers, so these tests require Docker independently of `SHOP_PRODUCTS_TEST_CONNECTION`. It covers cross-host reads, object content types, upload validation/limits, compensating deletion, failed credentials/buckets and health, explicit import with SHA-256 verification, idempotency/conflicts/missing references, link rejection and repeated demo seeding. Configuration/deadline/stream-disposal tests run without Docker. See the root README's R5-07 section for the importer command and isolated proof.
 
 ## Catalog endpoints and order contract
 

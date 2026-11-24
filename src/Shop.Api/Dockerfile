@@ -25,9 +25,6 @@ RUN dotnet publish src/Shop.Api/Shop.Api.csproj --configuration Release --no-res
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
-# Product images live on a volume mounted here, so the non-root user must own it
-RUN mkdir -p /data/images && chown $APP_UID:$APP_UID /data/images
-
 COPY --from=build /app/publish .
 
 # The image's built-in non-root user; ASP.NET Core listens on 8080 by default

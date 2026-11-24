@@ -61,7 +61,7 @@ start_api() {
     exec env ASPNETCORE_ENVIRONMENT=Production ASPNETCORE_URLS="$(api "$n")" \
       ConnectionStrings__Shop="Host=127.0.0.1;Port=$POSTGRES_PORT;Database=shop;Username=shop;Password=shop" \
       ConnectionStrings__Redis="127.0.0.1:$REDIS_PORT" \
-      Images__RootPath="$WORK/images-api$n" \
+      Images__Provider=Local Images__RootPath="$WORK/images-api$n" \
       Jwt__SigningKey="$JWT_KEY" Admin__Email=admin@shop.local Admin__Password='Admin123!' DemoSeed__Enabled=true \
       Cors__AllowedOrigins__0=http://localhost:5173 Inventory__Address=http://127.0.0.1:1 \
       RabbitMq__Host=127.0.0.1 RabbitMq__Port=1 RabbitMq__UserName=audit RabbitMq__Password=audit \
@@ -77,7 +77,7 @@ initialize_database() {
     cd src/Shop.Api
     env ASPNETCORE_ENVIRONMENT=Production \
       ConnectionStrings__Shop="Host=127.0.0.1;Port=$POSTGRES_PORT;Database=shop;Username=shop;Password=shop" \
-      ConnectionStrings__Redis="127.0.0.1:$REDIS_PORT" Images__RootPath="$WORK/images-api1" \
+      ConnectionStrings__Redis="127.0.0.1:$REDIS_PORT" Images__Provider=Local Images__RootPath="$WORK/images-api1" \
       Admin__Email=admin@shop.local Admin__Password='Admin123!' DemoSeed__Enabled=true \
       dotnet bin/Release/net10.0/Shop.Api.dll --migrate-and-seed
   )

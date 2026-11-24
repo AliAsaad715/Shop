@@ -22,6 +22,8 @@ export API_PORT=58180 POSTGRES_PORT=55433 REDIS_PORT=56380 RABBITMQ_PORT=55672 R
   MAILPIT_UI_PORT=58025 MAILPIT_SMTP_PORT=51025 REPLICA_PORT=55434
 # The proof requires the demo catalog and must always capture mail locally, regardless of the developer's .env.
 export DEMO_SEED_ENABLED=true EMAIL_PROVIDER=Mailpit
+# Isolated credentials, deliberately independent of the developer's object store and .env (R5-07).
+export S3_ACCESS_KEY=proof S3_SECRET_KEY=isolated-compose-proof-only S3_BUCKET=shop-images
 # Keep the fixed trust subnet separate from a developer's running shop network (R5-05).
 export SHOP_NETWORK_SUBNET=172.30.51.0/24
 readonly NGINX=http://localhost:$API_PORT RABBIT=http://localhost:$RABBITMQ_UI_PORT MAILPIT=http://localhost:$MAILPIT_UI_PORT
@@ -57,7 +59,7 @@ cleanup() {
 for tool in docker dotnet curl jq; do command -v "$tool" >/dev/null || fail "$tool is missing"; done
 [[ -n $(setting JWT_SIGNING_KEY "") ]] || fail "set JWT_SIGNING_KEY in .env first (see .env.example)"
 for image in postgres:18 redis:8.10.3-alpine rabbitmq:4.3.7-management-alpine axllent/mailpit:v1.33.1 \
-  nginx:1.30.7-alpine mcr.microsoft.com/dotnet/aspnet:10.0; do
+  nginx:1.30.7-alpine chrislusf/seaweedfs:4.53 mcr.microsoft.com/dotnet/aspnet:10.0; do
   docker image inspect "$image" >/dev/null 2>&1 || fail "the $image image isn't on this machine: docker pull $image"
 done
 docker image inspect shop-inventory >/dev/null 2>&1 || fail "no shop-inventory image yet: docker compose build inventory"
@@ -76,7 +78,7 @@ for host in Api Worker; do
 done
 # The runtime stages of src/Shop.Api/Dockerfile and src/Shop.Worker/Dockerfile
 printf '%s\n' 'FROM mcr.microsoft.com/dotnet/aspnet:10.0' 'WORKDIR /app' \
-  'RUN mkdir -p /data/images && chown $APP_UID:$APP_UID /data/images' 'COPY . .' 'USER $APP_UID' 'EXPOSE 8080' \
+  'COPY . .' 'USER $APP_UID' 'EXPOSE 8080' \
   'ENTRYPOINT ["dotnet", "Shop.Api.dll"]' | docker build -q -t "$PROJECT-api" -f - "$WORK/Api" >/dev/null
 printf '%s\n' 'FROM mcr.microsoft.com/dotnet/aspnet:10.0' 'WORKDIR /app' 'COPY . .' 'USER $APP_UID' \
   'ENTRYPOINT ["dotnet", "Shop.Worker.dll"]' | docker build -q -t "$PROJECT-worker" -f - "$WORK/Worker" >/dev/null
@@ -156,7 +158,13 @@ for service in api1 api2 api3; do
     "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET /images/$image_path HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; timeout 3 head -n 1 <&3 | grep -q ' 200 '" ||
     fail "demo image is unavailable on $service"
 done
-say "demo image is available on api1/api2/api3 through the shared images volume; /docs returns 200 after its redirect"
+for service in api1 api2 api3 migrator; do
+  id=$(docker compose ps -a -q "$service")
+  [[ $(docker inspect -f '{{len .Mounts}}' "$id") == 0 ]] || fail "$service has an image-volume mount"
+  [[ $(docker inspect -f '{{range .Config.Env}}{{if eq . "Images__Provider=S3"}}S3{{end}}{{end}}' "$id") == S3 ]] ||
+    fail "$service is not using S3"
+done
+say "demo image is available on api1/api2/api3 through S3; all three and migrator have zero mounts; /docs returns 200"
 
 step "3. X-Instance through Nginx"
 say "GET /health: X-Instance $(instance_of "$NGINX/health"); a 404: X-Instance $(instance_of "$NGINX/api/v1/missing")"

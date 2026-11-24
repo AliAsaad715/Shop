@@ -9,6 +9,8 @@
 **/TestResults
 .git
 .env
+# Legacy development images are imported explicitly, never included in the API build context.
+**/App_Data/images
 
 # The Go warehouse builds from its own context (compose's inventory service), never the API image
 warehouse
