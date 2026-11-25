@@ -26,7 +26,8 @@ The load runner:
 4. Sends exactly 500 k6 requests to `http://nginx`, counting the `X-Instance` response header. Every named instance
    must answer. Counts/percentages are reported; exact thirds are not a property of least connections.
 5. Keeps k6 running while api2 stops. Thirty additional probes must be served by api1/api3. After restarting api2,
-   it must answer within ten seconds of its listener returning. Error rate must remain below 1%, with no dropped
+   its first successful k6 response must be within ten seconds of its listener returning, measured from log
+   timestamps at one-second resolution. The original listener/response timestamps are retained. Error rate must remain below 1%, with no dropped
    k6 iterations. In-flight requests from a hard kill can fail; the runner uses a graceful stop.
 6. Runs at the same rate with only api1 and with all three, on the same six demo products. It records p50/p95/p99,
    error rates and connection peaks on both servers, rejecting exhaustion errors or loss of the ten-connection

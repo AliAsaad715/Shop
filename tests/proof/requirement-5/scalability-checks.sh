@@ -68,6 +68,10 @@ dc build inventory >"$RESULTS/build-inventory.txt" 2>&1 || { cat "$RESULTS/build
 dc up -d --no-build --wait --wait-timeout 180 >"$RESULTS/startup.txt" 2>&1 || { cat "$RESULTS/startup.txt" >&2; fail 'stack startup failed'; }
 API="http://127.0.0.1:$(dc port nginx 80 | head -n 1 | sed 's/.*://')"
 network=$(docker inspect -f '{{range $name, $details := .NetworkSettings.Networks}}{{$name}}{{end}}' "$(dc ps -q nginx)")
+proxy_id=$(dc ps -q nginx)
+api2_id=$(dc ps -q api2)
+api3_id=$(dc ps -q api3)
+api2_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$api2_id")
 curl -fsS "$API/health" >/dev/null
 
 step 'Budget and actual max_connections on primary AND replica (R5-09)'
@@ -111,7 +115,7 @@ cat "$RESULTS/distribution.json"
 
 step 'Continuity: stop api2 while k6 keeps sending traffic, then prove it rejoins'
 k6_run continuity continuity api1,api2,api3 45s & load=$!
-started() { grep -q R5_LOAD_STARTED "$RESULTS/continuity.txt"; }
+started() { [[ -f $RESULTS/continuity.txt ]] && grep -q R5_LOAD_STARTED "$RESULTS/continuity.txt"; }
 wait_for 60 started
 sleep 5
 printf 'stop api2 %s\n' "$(date -u +%FT%TZ)" >"$RESULTS/continuity-events.txt"
@@ -124,13 +128,24 @@ grep -q '^api1$' "$RESULTS/while-api2-stopped.txt" && grep -q '^api3$' "$RESULTS
 sleep 8
 printf 'start api2 %s\n' "$(date -u +%FT%TZ)" >>"$RESULTS/continuity-events.txt"
 restart_at=$(date -u +%FT%TZ)
-dc start api2 >/dev/null
-listening() { dc logs --since "$restart_at" api2 2>&1 | grep 'Now listening on' >/dev/null; }
+docker start "$api2_id" >/dev/null
+listening() { docker logs --since "$restart_at" "$api2_id" 2>&1 | grep 'Now listening on' >/dev/null; }
 wait_for 30 listening
-rejoin_start=$SECONDS
-rejoined() { curl -fsS -D - -o /dev/null "$API/health" | tr -d '\r' | grep -qi '^X-Instance: api2$'; }
-wait_for 10 rejoined
-printf 'api2 rejoined after %s seconds of probing\n' "$((SECONDS - rejoin_start))" >>"$RESULTS/continuity-events.txt"
+ready_at=$(docker logs --since "$restart_at" --timestamps "$api2_id" 2>&1 | awk '/Now listening on/{print $1}' | tail -n 1)
+rejoined() {
+  # Observe ALL ongoing k6 traffic. A sparse health probe can miss api2 while least_conn sends it other requests.
+  first_success=$(docker logs --since "$ready_at" --timestamps "$proxy_id" 2>/dev/null |
+    grep -F " 200 upstream=$api2_address:8080 upstream_status=200 " | awk 'NR==1' || true)
+  [[ -n $first_success ]]
+}
+# Allow log collection to finish, but assert the response's own timestamp, not when a polling loop noticed it.
+wait_for 15 rejoined
+answered_at=${first_success%% *}
+rejoin_seconds=$(( $(date -d "$answered_at" +%s) - $(date -d "$ready_at" +%s) ))
+printf 'listener %s\nfirst successful api2 response %s\nwhole elapsed seconds %s\n' \
+  "$ready_at" "$answered_at" "$rejoin_seconds" >>"$RESULTS/continuity-events.txt"
+printf '%s\n' "$first_success" >"$RESULTS/rejoin-evidence.txt"
+((rejoin_seconds <= 10)) || fail "api2 took $rejoin_seconds seconds to rejoin"
 wait "$load" || { cat "$RESULTS/continuity.txt" >&2; fail 'continuity load failed'; }
 
 step 'Same-rate comparison: one instance, then three, on the SAME demo data'
@@ -138,7 +153,7 @@ dc stop api2 api3 >/dev/null
 for _ in $(seq 1 10); do curl -s -o /dev/null "$API/health"; done
 sleep 11
 k6_run one-instance comparison api1 || fail 'one-instance run failed'
-dc start api2 api3 >/dev/null
+docker start "$api2_id" "$api3_id" >/dev/null
 sleep 12
 k6_run three-instances comparison api1,api2,api3 || fail 'three-instance run failed'
 kill "$sampler" 2>/dev/null || true; wait "$sampler" 2>/dev/null || true; sampler=
