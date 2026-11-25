@@ -212,6 +212,32 @@ public sealed class UpdateProductTests(CatalogCacheFixture fixture) : IClassFixt
     }
 
     [Fact]
+    public async Task NineReadsAcrossThreeAlreadyWarmHostsSeeTheEditAndRejectTheOldEtag()
+    {
+        HttpClient[] hosts = [fixture.Client, fixture.Second, fixture.Third];
+        var path = $"/api/v1/products/{Id}";
+        string? oldTag = null;
+        foreach (var host in hosts)
+        {
+            using var warm = await host.GetAsync(path);
+            Assert.Equal(HttpStatusCode.OK, warm.StatusCode);
+            oldTag = warm.Headers.ETag!.Tag;
+        }
+        using var updated = await PutAsync();
+        Assert.Equal(HttpStatusCode.NoContent, updated.StatusCode);
+        // No delay for LocalTtl: the first read on each other host must already be fresh.
+        for (var attempt = 0; attempt < 9; attempt++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            request.Headers.TryAddWithoutValidation("If-None-Match", oldTag);
+            using var response = await hosts[attempt % hosts.Length].SendAsync(request);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.NotEqual(oldTag, response.Headers.ETag!.Tag);
+            Assert.Equal("Updated product", (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("name").GetString());
+        }
+    }
+
+    [Fact]
     public async Task AnotherHostWithEmptyL1ReadsTheUpdatedSnapshotFromRedis()
     {
         await WarmAsync();

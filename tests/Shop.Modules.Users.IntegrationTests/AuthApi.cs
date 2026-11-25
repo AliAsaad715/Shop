@@ -13,6 +13,7 @@ using Shop.SharedKernel.Diagnostics;
 using Shop.SharedKernel.Errors;
 using Shop.SharedKernel.Validation;
 using Testcontainers.PostgreSql;
+using Shop.Testing;
 using Xunit;
 
 namespace Shop.Modules.Users.IntegrationTests;
@@ -24,6 +25,7 @@ public sealed class UsersHttpCollection;
 public sealed class AuthApi : IAsyncLifetime
 {
     private PostgreSqlContainer? _postgres;
+    private readonly RedisTestServer _redis = new();
     private WebApplication _app = null!;
     private readonly List<Guid> _createdUsers = [];
 
@@ -48,11 +50,13 @@ public sealed class AuthApi : IAsyncLifetime
             connectionString = _postgres.GetConnectionString();
         }
 
+        await _redis.StartAsync();
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = EnvironmentName });
         builder.WebHost.UseTestServer();
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:Shop"] = connectionString,
+            ["ConnectionStrings:Redis"] = _redis.ConnectionString,
             ["ReadRouting:Enabled"] = "false",
             ["Jwt:SigningKey"] = SigningKey,
             ["Jwt:Issuer"] = "shop",
@@ -121,6 +125,7 @@ public sealed class AuthApi : IAsyncLifetime
         }
 
         await _app.DisposeAsync();
+        await _redis.DisposeAsync();
         if (_postgres is not null)
         {
             await _postgres.DisposeAsync();

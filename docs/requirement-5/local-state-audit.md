@@ -101,6 +101,13 @@ instead of 5.
 
 **Before → after.** Check 2: before, 15 tries before the first 429; after, 5, wherever each try lands.
 
+**Implemented in R5-06.** The policy now uses an asynchronous Redis limiter; its Lua script atomically acquires
+a permit and sets the first request's expiry. All instances use the same normalized client-IP key. A restarted
+API keeps the quota, denied requests do not extend it, and Redis failure returns 503 rather than granting a local
+allowance. Compose uses `noeviction` so catalog pressure cannot discard active quotas. The pre-fix commit is
+tagged `r5-before-login-rate-limit`; `RedisLoginRateLimitTests` covers three independent hosts and concurrent
+acquisitions. The historical measurements above are retained; this entry describes the implementation and tests.
+
 ### 3. The limiter keys on the connection's address
 
 **Where.** [`LoginRateLimitPolicy.cs:15`](../../src/Modules/Users/Shop.Modules.Users/Auth/LoginRateLimitPolicy.cs#L15)
@@ -181,6 +188,11 @@ the change everywhere; everyone else doesn't.
 Before, the others show the old name; after, none do. A check that reads more than 5 seconds after the edit can't
 show the problem.
 
+**Implemented in R5-08.** Product details disable both L1 reads and writes, retaining Redis and the existing
+post-commit invalidation. The regression warms three hosts, edits through one, then checks nine immediate reads
+and conditional ETags. Lists/categories keep their existing bounded L1. `before-after-checks.sh` requires this
+same test to fail on `r5-before-cache-coherence` and pass on the fix.
+
 ### 6. Each instance may open 100 database connections
 
 **Where.** No connection string sets `Maximum Pool Size`, so Npgsql allows 100 per instance; Postgres's
@@ -199,6 +211,12 @@ the replica; for example 25 per API instance.
 
 **Before → after.** `perf/run.sh` at the same rate with one and with three instances: before, connections at the
 limit with errors under stress; after, below it with none.
+
+**Implemented in R5-09.** Each API has a 15-connection write pool and a 10-connection read pool. Read-pool
+fallback is included in the primary budget: `3 * (15 + 10) + 3 * 5 = 90`, leaving ten of 100 connections for
+tools/reserves. The replica budget is 30; the migrator runs separately with five. The connection-budget proof
+checks configured pools and actual `max_connections` on both servers, rejects unbounded/oversized controls,
+and the scalability proof records connection peaks during load.
 
 ### 7. SignalR negotiates, then connects
 
@@ -307,8 +325,9 @@ transaction stays open during the warehouse call. It could join R5-11 or become 
   the API restart policy is unchanged.
 - **R5-04.** Implemented, including the notifications schema and shared demo images. Check 1 initializes first;
   its "after" is three instances that start without migrating or seeding.
-- **R5-11.** The email worker's prefetch is 5 today
-  ([`NotificationsModule.cs:60`](../../src/Modules/Notifications/Shop.Modules.Notifications/NotificationsModule.cs#L60));
-  the plan wants 1.
-- **R5-12.** The "before" of each problem is a check in the script. Once R5-03 is in, the same checks can also run
-  through Nginx, where each becomes a count out of nine requests.
+- **R5-11.** Prefetch is now one. Three production worker registrations are tested on a real broker: thirty
+  shared emails, a held send on a worker that disappears, and replayed message IDs. The SMTP acceptance/recording
+  gap in ADR 0001 is still explicit; these checks do not promise exactly-once SMTP.
+- **R5-12.** The combined proof kit and workflow add k6 distribution/continuity and same-rate one/three runs,
+  actual database budgets/peaks, tagged negative controls and ADR 0002. Historical results are preserved.
+  `implementation-status.md` records work already present in other branches, which this change does not copy.

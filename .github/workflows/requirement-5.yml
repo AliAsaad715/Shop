@@ -1,0 +1,51 @@
+name: Requirement 5 proof
+
+on:
+  pull_request:
+    paths:
+      - compose.yaml
+      - .env.example
+      - perf/scalability.js
+      - perf/run.sh
+      - tests/proof/requirement-5/**
+      - src/Modules/Products/Shop.Modules.Products/Catalog/**
+      - src/Modules/Notifications/Shop.Modules.Notifications/NotificationsModule.cs
+      - tests/Shop.Modules.Products.IntegrationTests/**
+      - tests/Shop.Modules.Notifications.IntegrationTests/**
+      - .github/workflows/requirement-5.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DOTNET_NOLOGO: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: true
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Shell syntax
+        run: |
+          for script in tests/proof/requirement-5/{connection-budget,before-after-checks,scalability-checks}.sh; do
+            bash -n "$script"
+          done
+      - name: Before and after on real Redis, Postgres and RabbitMQ
+        run: bash tests/proof/requirement-5/before-after-checks.sh
+      - name: Nginx k6 distribution, continuity, pools and one/three comparison
+        run: bash tests/proof/requirement-5/scalability-checks.sh
+      - name: Upload proof including failures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: requirement-5-proof
+          path: artifacts/requirement-5/
+          retention-days: 14

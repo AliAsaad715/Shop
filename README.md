@@ -1309,7 +1309,7 @@ Client 1 gets five 401s and then a 429. Before the fix, client 2's first request
 gets its own 401, and forged header changes cannot reset client 1's quota. The script compares both client IPs
 with the application partition logs and Nginx's access log, and checks the external OpenAPI scheme/host/port.
 Compose proofs use a separate test subnet; standalone Nginx proofs discover their disposable network's subnet.
-The login counters remain per API instance until R5-06.
+The login counters are shared in Redis as of R5-06.
 
 The [R5-05 verification](tests/proof/requirement-5/results/forwarded-headers-verification-20261123.txt) records 690
 passing test cases, including 30 forwarding/configuration cases. The two-client
@@ -1319,6 +1319,43 @@ shared 429 to its independent 401. The
 [Compose](tests/proof/requirement-5/results/compose-checks-r5-05-20261123.txt) and
 [Nginx](tests/proof/requirement-5/results/nginx-checks-r5-05-20261123.txt) regressions passed; the optional
 browser-only Nginx step was skipped because Chrome/Chromium was unavailable to the script.
+
+## Shared login quota (task R5-06)
+
+`POST /api/v1/auth/login` shares one Redis counter per normalized, trusted client IP across all API instances:
+five attempts per 60 seconds by default, including successful logins and malformed JSON. The sixth attempt
+returns 429 `common.too_many_requests`, `Cache-Control: no-store` and `Retry-After` rounded up from Redis's
+remaining TTL. Identity's account lockout still lives in PostgreSQL and is independent of this IP quota.
+
+The existing `LoginRateLimit:PermitLimit` and `LoginRateLimit:WindowSeconds` settings are unchanged. All instances
+must use the same settings and `ConnectionStrings:Redis` (Compose already does). Direct local runs now need
+Redis too: `docker compose up -d redis`, then use the normal launch profile. The migrator does not connect to Redis.
+
+The Users module keeps the existing rate-limit policy and ASP.NET middleware. Its asynchronous limiter uses the
+existing StackExchange.Redis dependency and one atomic Lua script to acquire a permit and set the expiry under
+`shop:users:login:v1:<client-ip>`. Redis owns the window clock; denied attempts do not extend it. There is no
+local quota, so replacing an API process cannot reset the counter. Only `RemoteIpAddress`, after R5-05's trusted
+forwarding policy, supplies the key; raw forwarding headers never do.
+
+If Redis is unreachable, times out or rejects a write, login fails closed with 503 `common.service_unavailable`
+and `Retry-After: 1`; it never falls back to per-instance counters. Other endpoints retain their normal behavior.
+Compose waits for Redis's health check and uses `noeviction`, so catalog pressure cannot evict a live quota.
+The demo Redis still has no persistence: restarting Redis itself resets its counters. Redis remains a single
+point of failure, as in the Requirement 5 plan.
+
+`RedisLoginRateLimitTests` runs independent real API hosts against one disposable Redis: ten attempts distributed
+across three hosts admit exactly five, thirty concurrent attempts admit exactly five, a host restart retains the
+quota, rejected requests preserve the TTL, and expiry restores access. The outage check verifies the 503 contract.
+Existing login-protection and forwarded-header tests also exercise Redis, including mapped IPv6 addresses,
+untrusted headers, account lockout and malformed JSON. Run with Docker:
+
+```sh
+dotnet test tests/Shop.Modules.Users.IntegrationTests
+dotnet test tests/Shop.Api.IntegrationTests --filter 'FullyQualifiedName~RedisLoginRateLimitTests|FullyQualifiedName~ForwardedHeadersTests|FullyQualifiedName~BrowserSecurityTests'
+```
+
+The original local-state audit's check 2 can be repeated on `r5-before-login-rate-limit` and this branch. Before:
+15 permits across three instances; after: five permits total. Its recorded historical results remain unchanged.
 
 ## Shared product images through S3 (task R5-07)
 
@@ -1426,6 +1463,42 @@ migrator mounts, three workers, image availability, order/email delivery and 0% 
 [Nginx regression](tests/proof/requirement-5/results/nginx-checks-r5-07-20261123.txt) also passed; its optional
 browser-only step was skipped because Chrome/Chromium was unavailable.
 
+## Remaining scalability tasks (R5-08, R5-09, R5-11, R5-12)
+
+The [branch/PR audit](docs/requirement-5/implementation-status.md) distinguishes implemented work from missing
+work. R5-06 is included through PR #60. This branch also includes the R5-07 S3 implementation described above.
+
+Product details now set `HybridCacheEntryFlags.DisableLocalCache`: every instance uses the shared Redis snapshot,
+so an admin edit invalidates the body/ETag even on an already warm peer. Lists/categories retain their existing
+bounded five-second L1; R5-08 specifically changes product details. Live stock is still fetched separately, and
+order prices still read the database. A nine-read regression warms three hosts before editing and immediately
+checks the updated body and ETag on all three, without waiting for L1 expiry.
+
+Compose's database budget counts read-pool failover as well as writes:
+
+| Consumer | Pool limit | Worst-case primary | Replica |
+| --- | ---: | ---: | ---: |
+| Three API write pools | 15 each | 45 | 0 |
+| Three API read pools, including fallback | 10 each | 30 | 30 |
+| Three workers | 5 each | 15 | 0 |
+| Total runtime budget | | 90 | 30 |
+
+Both Postgres servers explicitly allow 100 connections, leaving at least ten on the primary for tools/reserves.
+The migrator uses a separate five-connection pool before runtime hosts start. `.env.example` exposes these
+limits; rerun `tests/proof/requirement-5/connection-budget.sh` after changing pool sizes or replica counts.
+That command requires the `replica` profile running and checks actual `SHOW max_connections` on both servers.
+Npgsql's `prefer-standby` can return primary connections when the standby is unavailable/full, so budgeting only
+the write pool would be unsafe. The full connection strings are not printed in the proof output.
+
+The three email workers now use prefetch one. Real RabbitMQ tests verify the broker's prefetch, fair sharing of
+30 messages, recovery when a worker disappears before its send, and deduplication when recorded IDs are replayed.
+The existing at-least-once SMTP limitation in ADR 0001 still applies to a crash after SMTP acceptance but before recording.
+
+The [Requirement 5 proof kit](tests/proof/requirement-5/README.md) adds tagged before/after checks, exactly 500 k6
+requests counted by X-Instance, a stop/rejoin during traffic, connection samples, and a same-rate one/three API
+comparison. Its workflow publishes results on GitHub. The six-product proof is separate from the large
+Requirement 3 benchmark. [ADR 0002](docs/adr/0002-least-connections-and-shared-state.md) records the least_conn decision.
+
 ## Verify
 
 ```sh
@@ -1436,6 +1509,8 @@ dotnet test Shop.slnx -m:1
 Integration tests use PostgreSQL 18 containers, and the messaging tests a RabbitMQ 4.3 container. With Docker unavailable, configure separate
 disposable databases using `SHOP_USERS_TEST_CONNECTION`, `SHOP_PRODUCTS_TEST_CONNECTION`,
 `SHOP_ORDERS_TEST_CONNECTION`, `SHOP_NOTIFICATIONS_TEST_CONNECTION` and `SHOP_CONFORMANCE_TEST_CONNECTION`. Tests apply migrations and change data.
+Login-protection, forwarded-header and browser-security tests also need Redis. They start disposable Redis
+containers by default; `SHOP_TEST_REDIS_CONNECTION` can point to a separate test Redis when Docker is unavailable.
 The conformance fixture creates its own temporary JWT signing key. The S3 tests require Docker even if an external
 test database is supplied.
 

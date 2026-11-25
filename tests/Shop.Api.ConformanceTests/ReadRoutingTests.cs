@@ -120,7 +120,7 @@ public sealed class ReadRoutingTests(ReadRoutingFixture fixture) : IClassFixture
     }
 
     [Fact]
-    public async Task WriterBypassesAnotherHostsWarmL1AndGetsANewETag()
+    public async Task WriterStillReadsPrimaryAndAnonymousDetailsAlsoRefreshAfterAnEdit()
     {
         var path = $"/api/v1/products/{fixture.Product}";
         using var warm = await fixture.Second.GetAsync(path);
@@ -132,9 +132,12 @@ public sealed class ReadRoutingTests(ReadRoutingFixture fixture) : IClassFixture
         Assert.Equal(77m, (await BodyAsync(fresh)).GetProperty("price").GetDecimal());
         Assert.NotEqual(oldTag, fresh.Headers.ETag!.Tag);
         Assert.Equal("1", SqlCount(fresh));
-        // Anonymous traffic on that same host still has its bounded old L1, proving the writer bypass mattered.
+        // R5-08 removes details L1. Anonymous readers now refill the invalidated Redis entry from primary too,
+        // even while replica replay is paused; the writer still bypasses the cache above (one primary query).
         using var anonymous = await fixture.Second.GetAsync(path);
-        Assert.Equal(10m, (await BodyAsync(anonymous)).GetProperty("price").GetDecimal());
+        Assert.Equal(77m, (await BodyAsync(anonymous)).GetProperty("price").GetDecimal());
+        Assert.Equal(fresh.Headers.ETag!.Tag, anonymous.Headers.ETag!.Tag);
+        Assert.Equal("1", SqlCount(anonymous));
     }
 
     [Fact]
