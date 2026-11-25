@@ -19,6 +19,7 @@ using Shop.Api.Security;
 using Shop.Modules.Users;
 using Shop.SharedKernel.Auth;
 using Shop.SharedKernel.Errors;
+using Shop.Testing;
 using Xunit;
 
 namespace Shop.Api.IntegrationTests;
@@ -26,6 +27,7 @@ namespace Shop.Api.IntegrationTests;
 public sealed class RoutingApi : IAsyncLifetime
 {
     private WebApplication _app = null!;
+    private readonly RedisTestServer _redis = new();
     private readonly byte[] _key = RandomNumberGenerator.GetBytes(32);
 
     public HttpClient Client { get; private set; } = null!;
@@ -33,6 +35,7 @@ public sealed class RoutingApi : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        await _redis.StartAsync();
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
@@ -51,6 +54,7 @@ public sealed class RoutingApi : IAsyncLifetime
             // A valid provider configuration is needed to construct Identity; these tests never query it.
             ["ConnectionStrings:Shop"] = "Host=127.0.0.1;Database=unused_routing_test;Username=postgres",
             ["ReadRouting:Enabled"] = "false",
+            ["ConnectionStrings:Redis"] = _redis.ConnectionString,
         });
         builder.Services.AddUsersModule();
         builder.Services.AddVersionedApiDocs();
@@ -109,6 +113,7 @@ public sealed class RoutingApi : IAsyncLifetime
     {
         Client.Dispose();
         await _app.DisposeAsync();
+        await _redis.DisposeAsync();
     }
 
     public string CustomerToken() => new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor

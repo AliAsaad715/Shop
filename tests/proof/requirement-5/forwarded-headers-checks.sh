@@ -15,7 +15,7 @@ step() { printf '\n== %s\n' "$*"; }
 say() { printf '   %s\n' "$*"; }
 fail() { printf 'FAILED: %s\n' "$*" >&2; exit 1; }
 cleanup() {
-  docker rm -f "$PROXY" "$PREFIX-api1" "$PREFIX-postgres" "$PREFIX-migrator" \
+  docker rm -f "$PROXY" "$PREFIX-api1" "$PREFIX-postgres" "$PREFIX-redis" "$PREFIX-migrator" \
     "$PREFIX-client1" "$PREFIX-client2" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
   docker image rm "$IMAGE" >/dev/null 2>&1 || true
@@ -29,7 +29,7 @@ wait_for() {
   done
 }
 for tool in docker dotnet curl jq; do command -v "$tool" >/dev/null || fail "$tool is missing"; done
-for image in postgres:18 nginx:1.30.7-alpine mcr.microsoft.com/dotnet/aspnet:10.0; do
+for image in postgres:18 redis:8.10.3-alpine nginx:1.30.7-alpine mcr.microsoft.com/dotnet/aspnet:10.0; do
   docker image inspect "$image" >/dev/null 2>&1 || fail "pull $image first"
 done
 ! (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null || fail "port $PORT is in use"
@@ -47,8 +47,11 @@ subnet=$(docker network inspect -f '{{(index .IPAM.Config 0).Subnet}}' "$NETWORK
 docker run -d --name "$PREFIX-postgres" --network "$NETWORK" --network-alias postgres \
   -e POSTGRES_USER=shop -e POSTGRES_PASSWORD=shop -e POSTGRES_DB=shop postgres:18 >/dev/null
 wait_for Postgres docker exec "$PREFIX-postgres" pg_isready -q -h 127.0.0.1 -U shop -d shop
+docker run -d --name "$PREFIX-redis" --network "$NETWORK" --network-alias redis redis:8.10.3-alpine >/dev/null
+wait_for Redis docker exec "$PREFIX-redis" redis-cli ping
 api_settings=(--network "$NETWORK" -e ASPNETCORE_ENVIRONMENT=Production \
   -e 'ConnectionStrings__Shop=Host=postgres;Port=5432;Database=shop;Username=shop;Password=shop' \
+  -e ConnectionStrings__Redis=redis:6379 \
   -e CatalogCache__Enabled=false -e ReadRouting__Enabled=false -e DemoSeed__Enabled=false \
   -e Admin__Email= -e Admin__Password= -e Jwt__SigningKey="$JWT_KEY" \
   -e Inventory__Address=http://127.0.0.1:1 -e RabbitMq__Host=127.0.0.1 -e RabbitMq__Port=1 \

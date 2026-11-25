@@ -14,6 +14,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Shop.Api.Security;
+using Shop.Testing;
 using Xunit;
 
 namespace Shop.Api.IntegrationTests;
@@ -206,12 +207,24 @@ public sealed class ReverseProxyConfigurationTests
 
 public sealed class ForwardedHeadersFixture : IAsyncLifetime
 {
-    internal ForwardedHeadersFactory Factory { get; } = new();
-    public Task InitializeAsync() => Task.CompletedTask;
-    public Task DisposeAsync() => Factory.DisposeAsync().AsTask();
+    private readonly RedisTestServer _redis = new();
+    internal ForwardedHeadersFactory Factory { get; private set; } = null!;
+    internal string RedisConnection => _redis.ConnectionString;
+    public async Task InitializeAsync()
+    {
+        await _redis.StartAsync();
+        Factory = new ForwardedHeadersFactory(redisConnection: RedisConnection);
+    }
+    public async Task DisposeAsync()
+    {
+        if (Factory is not null) await Factory.DisposeAsync();
+        await _redis.DisposeAsync();
+    }
 }
 
-internal sealed class ForwardedHeadersFactory(bool enabled = true, int? httpsPort = null) : WebApplicationFactory<global::Program>
+internal sealed class ForwardedHeadersFactory(
+    bool enabled = true, int? httpsPort = null, string redisConnection = "127.0.0.1:1",
+    string? instanceName = null, int windowSeconds = 60) : WebApplicationFactory<global::Program>
 {
     internal PartitionLogs Logs { get; } = new();
 
@@ -231,7 +244,10 @@ internal sealed class ForwardedHeadersFactory(bool enabled = true, int? httpsPor
             ["Inventory:Address"] = "http://127.0.0.1:1", ["RabbitMq:Host"] = "127.0.0.1", ["RabbitMq:Port"] = "1",
             ["RabbitMq:UserName"] = "shop", ["RabbitMq:Password"] = "shop", ["RabbitMq:ConnectTimeout"] = "00:00:01",
             ["Cors:AllowedOrigins:0"] = "http://localhost:5173",
-            ["LoginRateLimit:PermitLimit"] = "5", ["LoginRateLimit:WindowSeconds"] = "60",
+            ["LoginRateLimit:PermitLimit"] = "5",
+            ["ConnectionStrings:Redis"] = redisConnection,
+            ["INSTANCE_NAME"] = instanceName,
+            ["LoginRateLimit:WindowSeconds"] = windowSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
         }));
         if (httpsPort is { } port) builder.ConfigureServices(services => services.AddHttpsRedirection(options => options.HttpsPort = port));
     }
@@ -279,6 +295,7 @@ internal sealed class PartitionLogs : ILoggerProvider
         {
             if (category != "Shop.Modules.Users.Auth.LoginRateLimitPolicy" || state is not IEnumerable<KeyValuePair<string, object?>> values) return;
             var fields = values.ToDictionary(pair => pair.Key, pair => pair.Value);
+            if (!fields.ContainsKey("TraceId")) return;
             entries.Enqueue((fields["ClientIp"]!.ToString()!, fields["TraceId"]!.ToString()!));
         }
     }

@@ -23,7 +23,8 @@ internal static class LoginEndpoint
             .AllowAnonymous()
             .RequireRateLimiting(LoginRateLimitPolicy.Name)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .ProducesProblem(StatusCodes.Status429TooManyRequests);
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
     public static async Task<Results<Ok<LoginResponse>, ProblemHttpResult>> HandleAsync(
         LoginRequest request, UserManager<User> users, SignInManager<User> signIn,
