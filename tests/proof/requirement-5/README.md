@@ -45,7 +45,7 @@ The historical audit logs stay unchanged. Use the listed tag/implementation and 
 | Finding | Before | After/check | Existing implementation |
 | --- | --- | --- | --- |
 | Migration/seeding races | Failed first starts | One migrator, clean runtime starts; `compose-checks.sh` | R5-04 on main |
-| Per-instance login quota | Fifteen attempts over three APIs | Five total; `RedisLoginRateLimitTests` | [PR #60](https://github.com/AliAsaad715/Shop/pull/60), already implemented; merge before the final combined demo |
+| Per-instance login quota | Fifteen attempts over three APIs | Five total; `RedisLoginRateLimitTests` | [PR #60](https://github.com/AliAsaad715/Shop/pull/60), merged into main and included in this branch |
 | Nginx address used as client IP | One shared client bucket | Independent real clients; `forwarded-headers-checks.sh` | R5-05 on main |
 | Local images | Three of nine reads succeed | Nine of nine, including imported/demo images | [PR #59](https://github.com/AliAsaad715/Shop/pull/59), merged into `feature/r5-05-forwarded-headers`, not main |
 | Product-details L1 | Old body/ETag from warm peers | Nine immediate fresh reads across three warm hosts; `before-after-checks.sh` | R5-08 in this change; tag `r5-before-cache-coherence` |
@@ -61,8 +61,8 @@ verifies the before-send and after-record failure points; it does not claim exac
 
 The existing `local-state-checks.sh`, `nginx-checks.sh`, `compose-checks.sh`, and
 `forwarded-headers-checks.sh` retain their original checks. R5-07's `image-storage-checks.sh` is in its existing
-branch. Merge the already implemented R5-06/R5-07 work before presenting a fully combined twelve-task deployment;
-this PR deliberately does not copy their changes.
+branch. R5-06 is included through the merge of main. Integrate the already implemented R5-07 branch before
+presenting a fully combined twelve-task deployment; this PR does not copy its changes.
 
 ## Full Requirement 3 comparison
 

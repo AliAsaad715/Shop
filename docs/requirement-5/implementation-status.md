@@ -18,7 +18,8 @@ Tasks already implemented in another branch were excluded from this change.
 | R5-11 | Three workers already existed, but production email prefetch was five | Prefetch one; real-broker fairness/loss/replay tests |
 | R5-12 | Partial Nginx/Compose/audit scripts already existed; no combined kit or least_conn ADR | Reuse existing proofs; add automated before/after, k6 continuity/comparison, budget checks and ADR |
 
-This branch starts from main and adds only R5-08/R5-09/R5-11/R5-12. It does not merge or reimplement the other
-branches. The [proof kit](../../tests/proof/requirement-5/README.md) states prerequisites, what is measured and
+This branch adds R5-08/R5-09/R5-11/R5-12. After PR #60 merged into main, main was merged back into this
+branch to resolve the README conflict and include the existing R5-06 implementation without duplicating it.
+R5-07 remains on its existing branch. The [proof kit](../../tests/proof/requirement-5/README.md) states prerequisites, what is measured and
 where evidence is saved. Audit finding 9 (unclaimed pending warehouse releases) remains separately documented;
 it is not one of the plan's twelve tasks and must not be presented as already fixed.

@@ -45,6 +45,7 @@ public static class UsersModule
             .Validate(options => options.WindowSeconds is > 0 and <= 86400,
                 "Login rate-limit window must be between 1 and 86400 seconds.")
             .ValidateOnStart();
+        services.AddSingleton<LoginRateLimitStore>();
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;

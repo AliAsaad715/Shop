@@ -8,7 +8,8 @@ using Microsoft.Extensions.Logging;
 
 namespace Shop.Modules.Users.Auth;
 
-internal sealed class LoginRateLimitPolicy(IOptions<LoginRateLimitOptions> options, ILogger<LoginRateLimitPolicy> logger)
+internal sealed class LoginRateLimitPolicy(
+    IOptions<LoginRateLimitOptions> options, LoginRateLimitStore store, ILogger<LoginRateLimitPolicy> logger)
     : IRateLimiterPolicy<string>
 {
     public const string Name = "users.login";
@@ -31,19 +32,14 @@ internal sealed class LoginRateLimitPolicy(IOptions<LoginRateLimitOptions> optio
             logger.LogInformation("Login rate-limit partition {ClientIp} trace {TraceId}", key,
                 Activity.Current?.Id ?? httpContext.TraceIdentifier);
         }
-        return RateLimitPartition.GetFixedWindowLimiter(key, _ => new()
-        {
-            PermitLimit = options.Value.PermitLimit,
-            Window = TimeSpan.FromSeconds(options.Value.WindowSeconds),
-            QueueLimit = 0,
-            AutoReplenishment = true,
-        });
+        return RateLimitPartition.Get(key, clientIp => new RedisLoginRateLimiter(clientIp, options.Value, store, logger));
     }
 
-    public Func<OnRejectedContext, CancellationToken, ValueTask>? OnRejected => (context, _) =>
+    public Func<OnRejectedContext, CancellationToken, ValueTask>? OnRejected => (context, cancellationToken) =>
     {
         var response = context.HttpContext.Response;
-        response.StatusCode = StatusCodes.Status429TooManyRequests;
+        response.StatusCode = context.Lease.TryGetMetadata(RedisLoginRateLimiter.Unavailable, out _)
+            ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status429TooManyRequests;
         response.Headers.CacheControl = "no-store";
         if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
         {

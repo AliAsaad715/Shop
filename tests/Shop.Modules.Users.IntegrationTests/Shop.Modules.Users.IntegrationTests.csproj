@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Modules\Users\Shop.Modules.Users\Shop.Modules.Users.csproj" />
+    <Compile Include="..\TestInfrastructure\RedisTestServer.cs" Link="RedisTestServer.cs" />
   </ItemGroup>
 
 </Project>

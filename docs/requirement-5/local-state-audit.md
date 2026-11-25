@@ -101,6 +101,13 @@ instead of 5.
 
 **Before → after.** Check 2: before, 15 tries before the first 429; after, 5, wherever each try lands.
 
+**Implemented in R5-06.** The policy now uses an asynchronous Redis limiter; its Lua script atomically acquires
+a permit and sets the first request's expiry. All instances use the same normalized client-IP key. A restarted
+API keeps the quota, denied requests do not extend it, and Redis failure returns 503 rather than granting a local
+allowance. Compose uses `noeviction` so catalog pressure cannot discard active quotas. The pre-fix commit is
+tagged `r5-before-login-rate-limit`; `RedisLoginRateLimitTests` covers three independent hosts and concurrent
+acquisitions. The historical measurements above are retained; this entry describes the implementation and tests.
+
 ### 3. The limiter keys on the connection's address
 
 **Where.** [`LoginRateLimitPolicy.cs:15`](../../src/Modules/Users/Shop.Modules.Users/Auth/LoginRateLimitPolicy.cs#L15)
