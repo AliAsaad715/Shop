@@ -13,6 +13,9 @@ RESULTS=$(cd "$RESULTS" && pwd -P)
 export COMPOSE_PROJECT_NAME=$PROJECT COMPOSE_FILE="$PWD/compose.yaml:$WORK/override.yaml"
 export COMPOSE_PROFILES=replica SHOP_NETWORK_SUBNET=172.30.59.0/24
 export JWT_SIGNING_KEY="$(head -c 32 /dev/urandom | base64)"
+# Share fresh disposable credentials between the object store and its clients (R5-07).
+export S3_ACCESS_KEY=proof S3_BUCKET=shop-images
+export S3_SECRET_KEY="$(head -c 32 /dev/urandom | base64)"
 export API_PORT=0 POSTGRES_PORT=0 REPLICA_PORT=0 REDIS_PORT=0 RABBITMQ_PORT=0 RABBITMQ_UI_PORT=0
 export MAILPIT_UI_PORT=0 MAILPIT_SMTP_PORT=0 EMAIL_PROVIDER=Mailpit
 export ADMIN_EMAIL=admin@shop.local ADMIN_PASSWORD='Admin123!' DEMO_SEED_ENABLED=true
@@ -50,6 +53,9 @@ services:
   worker: { image: $PROJECT-worker }
   inventory: { image: $PROJECT-inventory }
 EOF
+
+step 'Validate the isolated Compose configuration'
+dc config --quiet || fail 'invalid proof Compose configuration'
 
 step 'Build the current source and prove three production worker registrations (R5-11)'
 dotnet test tests/Shop.Modules.Notifications.IntegrationTests -m:1 -nr:false \
