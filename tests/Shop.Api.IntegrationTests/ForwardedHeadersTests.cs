@@ -223,8 +223,7 @@ public sealed class ForwardedHeadersFixture : IAsyncLifetime
 }
 
 internal sealed class ForwardedHeadersFactory(
-    bool enabled = true, int? httpsPort = null, string redisConnection = "127.0.0.1:1",
-    string? instanceName = null, int windowSeconds = 60) : WebApplicationFactory<global::Program>
+    bool enabled = true, int? httpsPort = null, string redisConnection = "127.0.0.1:1") : WebApplicationFactory<global::Program>
 {
     internal PartitionLogs Logs { get; } = new();
 
@@ -246,8 +245,7 @@ internal sealed class ForwardedHeadersFactory(
             ["Cors:AllowedOrigins:0"] = "http://localhost:5173",
             ["LoginRateLimit:PermitLimit"] = "5",
             ["ConnectionStrings:Redis"] = redisConnection,
-            ["INSTANCE_NAME"] = instanceName,
-            ["LoginRateLimit:WindowSeconds"] = windowSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["LoginRateLimit:WindowSeconds"] = "60",
         }));
         if (httpsPort is { } port) builder.ConfigureServices(services => services.AddHttpsRedirection(options => options.HttpsPort = port));
     }

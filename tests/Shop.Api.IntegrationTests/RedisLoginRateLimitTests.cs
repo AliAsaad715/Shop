@@ -15,15 +15,16 @@ public sealed class RedisLoginRateLimitTests(ForwardedHeadersFixture fixture) : 
     [Fact]
     public async Task TenAttemptsAcrossThreeInstancesShareFivePermits()
     {
-        await using var api1 = Host("api1");
-        await using var api2 = Host("api2");
-        await using var api3 = Host("api3");
+        await using var api1 = Host();
+        await using var api2 = Host();
+        await using var api3 = Host();
         ForwardedHeadersFactory[] hosts = [api1, api2, api3];
+        Assert.NotSame(api1.Services, api2.Services);
+        Assert.NotSame(api2.Services, api3.Services);
         var client = NewClient();
         for (var attempt = 0; attempt < 10; attempt++)
         {
             var response = await LoginAsync(hosts[attempt % 3], client);
-            Assert.Equal($"api{attempt % 3 + 1}", response.Response.Headers["X-Instance"]);
             await AssertProblemAsync(response, attempt < 5 ? 401 : 429);
         }
 
@@ -34,9 +35,9 @@ public sealed class RedisLoginRateLimitTests(ForwardedHeadersFixture fixture) : 
     [Fact]
     public async Task ConcurrentAttemptsAcrossThreeInstancesCannotOverspendTheQuota()
     {
-        await using var api1 = Host("api1");
-        await using var api2 = Host("api2");
-        await using var api3 = Host("api3");
+        await using var api1 = Host();
+        await using var api2 = Host();
+        await using var api3 = Host();
         ForwardedHeadersFactory[] hosts = [api1, api2, api3];
         // Warm each host without consuming this client's permits.
         foreach (var host in hosts) await host.SendAsync(Peer, null, null);
@@ -51,18 +52,18 @@ public sealed class RedisLoginRateLimitTests(ForwardedHeadersFixture fixture) : 
     public async Task RestartingAnApiDoesNotResetTheSharedQuota()
     {
         var client = NewClient();
-        await using (var first = Host("api1"))
+        await using (var first = Host())
         {
             for (var n = 0; n < 5; n++) await AssertProblemAsync(await LoginAsync(first, client), 401);
         }
-        await using var restarted = Host("api1");
+        await using var restarted = Host();
         await AssertProblemAsync(await LoginAsync(restarted, client), 429);
     }
 
     [Fact]
     public async Task RejectedAttemptsDoNotExtendTheRedisWindowAndExpiryRestoresPermits()
     {
-        await using var api = Host("api1");
+        await using var api = Host();
         var client = NewClient();
         for (var n = 0; n < 5; n++) await LoginAsync(api, client);
         using var redis = await ConnectionMultiplexer.ConnectAsync(fixture.RedisConnection);
@@ -92,7 +93,7 @@ public sealed class RedisLoginRateLimitTests(ForwardedHeadersFixture fixture) : 
         Assert.Equal(StatusCodes.Status200OK, health.Response.StatusCode);
     }
 
-    private ForwardedHeadersFactory Host(string name) => new(redisConnection: fixture.RedisConnection, instanceName: name);
+    private ForwardedHeadersFactory Host() => new(redisConnection: fixture.RedisConnection);
     private static string NewClient() => new IPAddress(Guid.NewGuid().ToByteArray()).ToString();
     private static Task<HttpContext> LoginAsync(ForwardedHeadersFactory host, string client) =>
         host.SendAsync(Peer, client, "http", path: "/api/v1/auth/login");
