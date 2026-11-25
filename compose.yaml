@@ -54,7 +54,7 @@ x-api: &api
     inventory:
       condition: service_started
     redis:
-      condition: service_started
+      condition: service_healthy
     # Not awaited either: orders still save while RabbitMQ is down, and their events wait in the outbox (R4-02)
     rabbitmq:
       condition: service_started
@@ -205,7 +205,9 @@ services:
 
   redis:
     image: redis:8.10.3-alpine
-    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
+    # Login counters share this server with the catalog (R5-06). Do not evict live quotas to make room for cache
+    # entries: at the memory limit cache writes fail softly and login fails closed until memory is available.
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction", "--save", "", "--appendonly", "no"]
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     healthcheck:

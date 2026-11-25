@@ -1,4 +1,5 @@
 # Task 12. Local launch profile uses 5080; Docker Compose defaults to 8080.
+# R5-06: Redis must be running; Compose's three API instances now share these five permits.
 @baseUrl = http://localhost:5080
 
 ### Send six times within one minute with default limits: five 401s, then 429.

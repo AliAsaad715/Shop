@@ -1307,7 +1307,7 @@ Client 1 gets five 401s and then a 429. Before the fix, client 2's first request
 gets its own 401, and forged header changes cannot reset client 1's quota. The script compares both client IPs
 with the application partition logs and Nginx's access log, and checks the external OpenAPI scheme/host/port.
 Compose proofs use a separate test subnet; standalone Nginx proofs discover their disposable network's subnet.
-The login counters remain per API instance until R5-06.
+The login counters are shared in Redis as of R5-06.
 
 The [R5-05 verification](tests/proof/requirement-5/results/forwarded-headers-verification-20261123.txt) records 690
 passing test cases, including 30 forwarding/configuration cases. The two-client
@@ -1317,6 +1317,43 @@ shared 429 to its independent 401. The
 [Compose](tests/proof/requirement-5/results/compose-checks-r5-05-20261123.txt) and
 [Nginx](tests/proof/requirement-5/results/nginx-checks-r5-05-20261123.txt) regressions passed; the optional
 browser-only Nginx step was skipped because Chrome/Chromium was unavailable to the script.
+
+## Shared login quota (task R5-06)
+
+`POST /api/v1/auth/login` shares one Redis counter per normalized, trusted client IP across all API instances:
+five attempts per 60 seconds by default, including successful logins and malformed JSON. The sixth attempt
+returns 429 `common.too_many_requests`, `Cache-Control: no-store` and `Retry-After` rounded up from Redis's
+remaining TTL. Identity's account lockout still lives in PostgreSQL and is independent of this IP quota.
+
+The existing `LoginRateLimit:PermitLimit` and `LoginRateLimit:WindowSeconds` settings are unchanged. All instances
+must use the same settings and `ConnectionStrings:Redis` (Compose already does). Direct local runs now need
+Redis too: `docker compose up -d redis`, then use the normal launch profile. The migrator does not connect to Redis.
+
+The Users module keeps the existing rate-limit policy and ASP.NET middleware. Its asynchronous limiter uses the
+existing StackExchange.Redis dependency and one atomic Lua script to acquire a permit and set the expiry under
+`shop:users:login:v1:<client-ip>`. Redis owns the window clock; denied attempts do not extend it. There is no
+local quota, so replacing an API process cannot reset the counter. Only `RemoteIpAddress`, after R5-05's trusted
+forwarding policy, supplies the key; raw forwarding headers never do.
+
+If Redis is unreachable, times out or rejects a write, login fails closed with 503 `common.service_unavailable`
+and `Retry-After: 1`; it never falls back to per-instance counters. Other endpoints retain their normal behavior.
+Compose waits for Redis's health check and uses `noeviction`, so catalog pressure cannot evict a live quota.
+The demo Redis still has no persistence: restarting Redis itself resets its counters. Redis remains a single
+point of failure, as in the Requirement 5 plan.
+
+`RedisLoginRateLimitTests` runs independent real API hosts against one disposable Redis: ten attempts distributed
+across three hosts admit exactly five, thirty concurrent attempts admit exactly five, a host restart retains the
+quota, rejected requests preserve the TTL, and expiry restores access. The outage check verifies the 503 contract.
+Existing login-protection and forwarded-header tests also exercise Redis, including mapped IPv6 addresses,
+untrusted headers, account lockout and malformed JSON. Run with Docker:
+
+```sh
+dotnet test tests/Shop.Modules.Users.IntegrationTests
+dotnet test tests/Shop.Api.IntegrationTests --filter 'FullyQualifiedName~RedisLoginRateLimitTests|FullyQualifiedName~ForwardedHeadersTests|FullyQualifiedName~BrowserSecurityTests'
+```
+
+The original local-state audit's check 2 can be repeated on `r5-before-login-rate-limit` and this branch. Before:
+15 permits across three instances; after: five permits total. Its recorded historical results remain unchanged.
 
 ## Verify
 
@@ -1328,6 +1365,8 @@ dotnet test Shop.slnx -m:1
 Integration tests use PostgreSQL 18 containers, and the messaging tests a RabbitMQ 4.3 container. With Docker unavailable, configure separate
 disposable databases using `SHOP_USERS_TEST_CONNECTION`, `SHOP_PRODUCTS_TEST_CONNECTION`,
 `SHOP_ORDERS_TEST_CONNECTION`, `SHOP_NOTIFICATIONS_TEST_CONNECTION` and `SHOP_CONFORMANCE_TEST_CONNECTION`. Tests apply migrations and change data.
+Login-protection, forwarded-header and browser-security tests also need Redis. They start disposable Redis
+containers by default; `SHOP_TEST_REDIS_CONNECTION` can point to a separate test Redis when Docker is unavailable.
 The conformance fixture creates its own temporary JWT signing key.
 
 See [security-headers.http](tests/http/security-headers.http) for manual header and CORS checks.

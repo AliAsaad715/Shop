@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Shop.Api\Shop.Api.csproj" />
+    <Compile Include="..\TestInfrastructure\RedisTestServer.cs" Link="RedisTestServer.cs" />
   </ItemGroup>
 
 </Project>
