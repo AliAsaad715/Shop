@@ -19,8 +19,10 @@ x-api: &api
     ReverseProxy__Enabled: "true"
     ReverseProxy__TrustedNetworks__0: ${SHOP_NETWORK_SUBNET:-172.30.50.0/24}
     Images__RootPath: /data/images
-    ConnectionStrings__Shop: Host=postgres;Port=5432;Database=${POSTGRES_DB:-shop};Username=${POSTGRES_USER:-shop};Password=${POSTGRES_PASSWORD:-shop}
-    ConnectionStrings__ShopRead: Host=db-replica,postgres;Port=5432;Database=${POSTGRES_DB:-shop};Username=${POSTGRES_USER:-shop};Password=${POSTGRES_PASSWORD:-shop};Target Session Attributes=prefer-standby;Timeout=2;Host Recheck Seconds=5
+    # R5-09: budget BOTH pools on the primary, because the read pool can fall back there. Three APIs use at most
+    # 3 * (15 + 10) = 75 connections; three workers use 15 more, leaving 10 of Postgres's 100 for tools/reserves.
+    ConnectionStrings__Shop: Host=postgres;Port=5432;Database=${POSTGRES_DB:-shop};Username=${POSTGRES_USER:-shop};Password=${POSTGRES_PASSWORD:-shop};Maximum Pool Size=${API_DB_POOL_SIZE:-15};Application Name=shop-api
+    ConnectionStrings__ShopRead: Host=db-replica,postgres;Port=5432;Database=${POSTGRES_DB:-shop};Username=${POSTGRES_USER:-shop};Password=${POSTGRES_PASSWORD:-shop};Target Session Attributes=prefer-standby;Timeout=2;Host Recheck Seconds=5;Maximum Pool Size=${API_READ_DB_POOL_SIZE:-10};Application Name=shop-api-read
     ReadRouting__Enabled: ${READ_ROUTING_ENABLED:-false}
     ReadRouting__PrimaryWindow: ${READ_YOUR_WRITES_WINDOW:-00:00:10}
     # Used only by the explicit migrator; change both outside local demos
@@ -72,6 +74,9 @@ services:
   # Override the anchor's dependencies to avoid waiting for ourselves or for optional runtime services (R5-04).
   migrator:
     <<: *api
+    environment:
+      <<: *api-environment
+      ConnectionStrings__Shop: Host=postgres;Port=5432;Database=${POSTGRES_DB:-shop};Username=${POSTGRES_USER:-shop};Password=${POSTGRES_PASSWORD:-shop};Maximum Pool Size=${MIGRATOR_DB_POOL_SIZE:-5};Application Name=shop-migrator
     command: ["--migrate-and-seed"]
     restart: "no"
     healthcheck:
@@ -129,7 +134,7 @@ services:
       replicas: 3
     environment:
       DOTNET_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
-      ConnectionStrings__Shop: Host=postgres;Port=5432;Database=${POSTGRES_DB:-shop};Username=${POSTGRES_USER:-shop};Password=${POSTGRES_PASSWORD:-shop}
+      ConnectionStrings__Shop: Host=postgres;Port=5432;Database=${POSTGRES_DB:-shop};Username=${POSTGRES_USER:-shop};Password=${POSTGRES_PASSWORD:-shop};Maximum Pool Size=${WORKER_DB_POOL_SIZE:-5};Application Name=shop-worker
       RabbitMq__Host: rabbitmq
       RabbitMq__UserName: ${RABBITMQ_USER:-shop}
       RabbitMq__Password: ${RABBITMQ_PASSWORD:-shop}
@@ -230,6 +235,8 @@ services:
       - -c
       - shared_preload_libraries=pg_stat_statements
       - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-100}
+      - -c
       - hba_file=/etc/postgresql/pg_hba.conf
       - -c
       - max_slot_wal_keep_size=1GB
@@ -269,6 +276,8 @@ services:
       - postgres
       - -c
       - shared_preload_libraries=pg_stat_statements
+      - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-100}
       - -c
       - hba_file=/etc/postgresql/pg_hba.conf
       # Its name in the primary's pg_stat_replication

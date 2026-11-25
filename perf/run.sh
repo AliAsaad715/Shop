@@ -17,6 +17,7 @@ K6_CONTAINER=shop-perf-k6
 REDIS_SERVICE=${REDIS_SERVICE:-redis}
 REPLICA_SERVICE=${REPLICA_SERVICE:-db-replica}
 RUNS=${RUNS:-3}
+API_INSTANCES=${API_INSTANCES:-3}
 SAMPLE_SECONDS=2
 # The seeded customers every step uses (perf/seed.sql): the two with the most orders, and three typical ones
 CUSTOMER_EMAILS=${CUSTOMER_EMAILS:-customer1@shop.test,customer2@shop.test,customer100@shop.test,customer5000@shop.test,customer40000@shop.test}
@@ -43,6 +44,19 @@ if [[ ! $RUNS =~ ^[1-9][0-9]*$ ]]; then
   echo "RUNS must be a whole number above 0" >&2
   exit 2
 fi
+if [[ $API_INSTANCES != 1 && $API_INSTANCES != 3 ]]; then
+  echo "API_INSTANCES must be 1 or 3" >&2
+  exit 2
+fi
+
+# snapshot.sh intentionally starts all APIs after restoring. Reapply the measured topology after EVERY restore,
+# including the first one, so a one-instance label cannot silently measure three instances (R5-12).
+prepare_instances() {
+  if [[ $API_INSTANCES == 1 ]]; then docker compose --progress quiet stop api2 api3; fi
+  local running
+  running=$(docker compose ps --status running --services | grep -E '^api[123]$' | wc -l | tr -d ' ')
+  [[ $running == "$API_INSTANCES" ]] || { echo "Expected $API_INSTANCES API instances, found $running" >&2; exit 1; }
+}
 
 command -v jq >/dev/null || { echo "perf/run.sh needs jq: sudo apt install jq, or brew install jq" >&2; exit 1; }
 
@@ -197,10 +211,10 @@ write_system() {
   fi
 
   jq -n --arg label "$label" --argjson run "$run" --arg result "$(basename "$result")" --arg commit "$commit" \
-    --arg snapshot "$snapshot" --argjson cores "$cores" --argjson sampleSeconds "$SAMPLE_SECONDS" \
+    --arg snapshot "$snapshot" --argjson apiInstances "$API_INSTANCES" --argjson cores "$cores" --argjson sampleSeconds "$SAMPLE_SECONDS" \
     --slurpfile k6 "$result" --argjson cpu "$cpu" --argjson database "$database" --argjson topQueries "$queries" \
     --argjson redis "$redis" --argjson notes "$notes" --argjson replica "$replica" --argjson replicaQueries "$replica_queries" '
-    {label: $label, run: $run, result: $result, commit: $commit, snapshot: $snapshot, window: $k6[0].window,
+    {label: $label, run: $run, result: $result, commit: $commit, apiInstances: $apiInstances, snapshot: $snapshot, window: $k6[0].window,
      sampleSeconds: $sampleSeconds, cpu: {cores: $cores, containers: $cpu}, database: $database,
      topQueries: $topQueries, replica: {database: $replica, topQueries: $replicaQueries}, redis: $redis, notes: $notes}' >"${result%.json}.system.json"
 }
@@ -208,6 +222,7 @@ write_system() {
 echo "Step \"$label\" at $commit: $RUNS run$([[ $RUNS -eq 1 ]] || echo s) at $rate req/s, each from the seeded snapshot"
 docker rm -f "$K6_CONTAINER" >/dev/null 2>&1 || true # left behind by a run that crashed
 perf/snapshot.sh restore
+prepare_instances
 
 # Through Nginx, as real traffic arrives: it spreads the load over api1-api3 (task R5-03)
 api=${API_URL:-http://localhost:$(docker compose port nginx 80 | sed 's/.*://')}
@@ -241,6 +256,7 @@ for ((run = 1; run <= RUNS; run++)); do
   # "my orders", so without this their histories, and that endpoint's work, would grow from run to run
   if [[ $run -gt 1 ]]; then
     perf/snapshot.sh restore
+    prepare_instances
   fi
 
   reset_counters

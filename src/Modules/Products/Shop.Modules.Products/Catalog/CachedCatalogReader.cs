@@ -29,7 +29,8 @@ internal sealed class CachedCatalogReader(
         try
         {
             return await ReadAsync(CatalogCacheKeys.Product(id), options.Value.ProductTtl, [CatalogCacheKeys.CatalogTag],
-                async (db, token) => await CatalogQueries.GetAsync(id, db, token) ?? throw new MissingProductException(), ct);
+                async (db, token) => await CatalogQueries.GetAsync(id, db, token) ?? throw new MissingProductException(), ct,
+                HybridCacheEntryFlags.DisableLocalCache);
         }
         catch (MissingProductException)
         {
@@ -39,7 +40,8 @@ internal sealed class CachedCatalogReader(
     }
 
     private async Task<T> ReadAsync<T>(string? key, TimeSpan ttl, string[] tags,
-        Func<ProductsDbContext, CancellationToken, Task<T>> query, CancellationToken ct)
+        Func<ProductsDbContext, CancellationToken, Task<T>> query, CancellationToken ct,
+        HybridCacheEntryFlags flags = HybridCacheEntryFlags.None)
     {
         var route = await routing.RouteAsync(ct);
         var pinned = routing.Enabled && route == DatabaseReadRoute.Primary;
@@ -48,8 +50,9 @@ internal sealed class CachedCatalogReader(
         if (pinned || !options.Value.Enabled || key is null)
             return await (state with { Route = route }).ReadAsync(ct);
         // Every shared cache fill uses the primary, regardless of the request's read route.
+        // Product details have no L1: an edit removes the shared Redis entry for every instance (R5-08).
         return await cache.GetOrCreateAsync(key, state, static (fill, token) => fill.ReadAsync(token),
-            new HybridCacheEntryOptions { Expiration = ttl, LocalCacheExpiration = options.Value.LocalTtl }, tags, ct);
+            new HybridCacheEntryOptions { Expiration = ttl, LocalCacheExpiration = options.Value.LocalTtl, Flags = flags }, tags, ct);
     }
 
     private sealed record Fill<T>(IServiceScopeFactory Scopes, DbQueryCount? Counter,

@@ -215,7 +215,82 @@ public sealed class OrderConfirmationDeliveryTests(NotificationsFixture fixture,
         }
     });
 
-    private IHost CreateHost(bool worker, ConfirmationGate? gate = null, string? clientName = null)
+    [Fact]
+    public Task ThreeProductionWorkersShareThirtyEmailsWithPrefetchOneAndDeduplicateReplays() => RunAsync(async ct =>
+    {
+        var senders = Enumerable.Range(0, 3).Select(_ => new WorkerEmailSender(fixture.Sender)).ToArray();
+        for (var index = 0; index < senders.Length; index++)
+            await StartWorkerAsync(ct, sender: senders[index], expectedConsumers: (uint)(index + 1));
+        await AssertThreePrefetchOneConsumersAsync(ct);
+
+        var messages = await PublishAsync(30, ct);
+        await WaitAsync(() => Task.FromResult(fixture.Sender.Sent.Count == 30), ct);
+        await WaitAsync(async () => await RecordedCountAsync(ct) == 30, ct);
+        // Re-deliver the same event IDs after recording: any worker can recognize them.
+        var replayed = await _publisherHost.Services.GetRequiredService<IEventPublisher>().PublishAsync(
+            [.. messages.Select(item => new OutgoingMessage(item.Id, ShopTopology.RoutingKeys.OrderPlaced,
+                JsonSerializer.SerializeToUtf8Bytes(item.Order, new JsonSerializerOptions(JsonSerializerDefaults.Web)), item.Order.PlacedAt))], ct);
+        Assert.All(replayed, result => Assert.True(result.Confirmed, result.Failure));
+        await WaitAsync(async () => (await _probe.QueueDeclarePassiveAsync(ShopTopology.EmailQueue, ct)).MessageCount == 0, ct);
+        foreach (var worker in _workers) await worker.StopAsync(ct);
+        Assert.Equal(0u, (await _probe.QueueDeclarePassiveAsync(ShopTopology.EmailQueue, ct)).MessageCount);
+        Assert.Equal(30, fixture.Sender.Sent.Count);
+        Assert.Equal(30, await RecordedCountAsync(ct));
+        Assert.All(senders, sender => Assert.InRange(sender.Count, 1, 20));
+        foreach (var (_, order) in messages)
+            Assert.Single(fixture.Sender.Sent, email => email.TextBody.Contains(order.OrderId.ToString()));
+        output.WriteLine($"R5-11: 30 confirmations across three workers: {string.Join(", ", senders.Select(sender => sender.Count))}; 30 recorded; replay sent no additional emails.");
+    });
+
+    [Fact]
+    public Task LosingOneWorkerDuringASendReturnsItsUnacknowledgedEmailToTheOtherTwo() => RunAsync(async ct =>
+    {
+        using var held = new WorkerEmailSender(fixture.Sender, hold: true);
+        var name = $"r5-worker-crash-{Guid.NewGuid():N}";
+        var first = await StartWorkerAsync(ct, clientName: name, sender: held);
+        await StartWorkerAsync(ct, sender: new WorkerEmailSender(fixture.Sender), expectedConsumers: 2);
+        await StartWorkerAsync(ct, sender: new WorkerEmailSender(fixture.Sender), expectedConsumers: 3);
+        var messages = await PublishAsync(30, ct);
+        await held.Entered.Task.WaitAsync(ct);
+        await WaitAsync(() => Task.FromResult(fixture.Sender.Sent.Count == 29), ct);
+        await AssertThreePrefetchOneConsumersAsync(ct);
+        // The first process disappears before SMTP accepts its email. Disable recovery, then abandon its send.
+        var connection = await first.Services.GetRequiredService<RabbitMqConnection>().GetAsync(ct);
+        await CloseConnectionAsync(name, ct);
+        await WaitAsync(() => Task.FromResult(!connection.IsOpen), ct);
+        var dispose = connection.DisposeAsync().AsTask();
+        held.Kill();
+        await dispose.WaitAsync(ct);
+        await first.StopAsync(ct);
+        await WaitAsync(() => Task.FromResult(fixture.Sender.Sent.Count == 30), ct);
+        await WaitAsync(async () => await RecordedCountAsync(ct) == 30, ct);
+        foreach (var worker in _workers) await worker.StopAsync(ct);
+        Assert.Equal(0, held.Count);
+        Assert.Equal(30, fixture.Sender.Sent.Count);
+        foreach (var (_, order) in messages)
+            Assert.Single(fixture.Sender.Sent, email => email.TextBody.Contains(order.OrderId.ToString()));
+        output.WriteLine("R5-11: one worker lost during a held send; the other two delivered all 30 emails once.");
+    });
+
+    private async Task<int> RecordedCountAsync(CancellationToken ct)
+    {
+        await using var scope = fixture.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<NotificationsDbContext>().ProcessedMessages.CountAsync(ct);
+    }
+
+    private async Task AssertThreePrefetchOneConsumersAsync(CancellationToken ct)
+    {
+        JsonElement queue = default;
+        await WaitAsync(async () =>
+        {
+            queue = await QueueAsync(ShopTopology.EmailQueue, ct);
+            return queue.TryGetProperty("consumer_details", out var consumers) && consumers.GetArrayLength() == 3;
+        }, ct);
+        Assert.All(queue.GetProperty("consumer_details").EnumerateArray(), consumer =>
+            Assert.Equal(1, consumer.GetProperty("prefetch_count").GetInt32()));
+    }
+
+    private IHost CreateHost(bool worker, ConfirmationGate? gate = null, string? clientName = null, IEmailSender? sender = null)
     {
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { DisableDefaults = true });
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
@@ -238,7 +313,7 @@ public sealed class OrderConfirmationDeliveryTests(NotificationsFixture fixture,
         if (worker)
         {
             // Exercise the production worker registration and inbox; replace only the external SMTP boundary.
-            builder.Services.AddSingleton<IEmailSender>(fixture.Sender);
+            builder.Services.AddSingleton<IEmailSender>(sender ?? fixture.Sender);
             var existingHostedServices = builder.Services.Where(service => service.ServiceType == typeof(IHostedService)).ToArray();
             builder.Services.AddNotificationsWorker();
             if (gate is not null)
@@ -250,18 +325,19 @@ public sealed class OrderConfirmationDeliveryTests(NotificationsFixture fixture,
                 Assert.NotNull(consumer.ImplementationFactory);
                 builder.Services.Remove(consumer);
                 builder.Services.AddSingleton(gate);
-                builder.Services.AddQueueConsumer<GatedConfirmationHandler>(ShopTopology.EmailQueue, prefetch: 5);
+                builder.Services.AddQueueConsumer<GatedConfirmationHandler>(ShopTopology.EmailQueue, prefetch: 1);
             }
         }
         return builder.Build();
     }
 
-    private async Task<IHost> StartWorkerAsync(CancellationToken ct, ConfirmationGate? gate = null, string? clientName = null)
+    private async Task<IHost> StartWorkerAsync(CancellationToken ct, ConfirmationGate? gate = null, string? clientName = null,
+        IEmailSender? sender = null, uint expectedConsumers = 1)
     {
-        var worker = CreateHost(worker: true, gate, clientName);
+        var worker = CreateHost(worker: true, gate, clientName, sender);
         _workers.Add(worker);
         await worker.StartAsync(ct);
-        await WaitAsync(async () => (await _probe.QueueDeclarePassiveAsync(ShopTopology.EmailQueue, ct)).ConsumerCount == 1, ct);
+        await WaitAsync(async () => (await _probe.QueueDeclarePassiveAsync(ShopTopology.EmailQueue, ct)).ConsumerCount == expectedConsumers, ct);
         return worker;
     }
 
@@ -374,6 +450,24 @@ public sealed class OrderConfirmationDeliveryTests(NotificationsFixture fixture,
             if (!hold) return;
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(testToken, handlerToken);
             await _released.Task.WaitAsync(linked.Token);
+        }
+    }
+
+    private sealed class WorkerEmailSender(RecordingEmailSender inner, bool hold = false) : IEmailSender, IDisposable
+    {
+        private readonly CancellationTokenSource _killed = new();
+        private int _count;
+        public int Count => Volatile.Read(ref _count);
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public void Kill() => _killed.Cancel();
+        public void Dispose() => _killed.Dispose();
+        public async Task SendAsync(EmailMessage email, CancellationToken cancellationToken)
+        {
+            Entered.TrySetResult();
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _killed.Token);
+            await Task.Delay(hold ? Timeout.InfiniteTimeSpan : TimeSpan.FromMilliseconds(40), linked.Token);
+            await inner.SendAsync(email, linked.Token);
+            Interlocked.Increment(ref _count);
         }
     }
 

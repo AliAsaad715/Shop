@@ -46,6 +46,7 @@ public sealed class CatalogCacheFixture : IAsyncLifetime
     public WebApplication App { get; private set; } = null!;
     public HttpClient Client { get; private set; } = null!;
     public HttpClient Second { get; private set; } = null!;
+    public HttpClient Third { get; private set; } = null!;
     public QueryProbe Queries { get; } = new();
     public QueryProbe SecondQueries { get; } = new();
     public StockInventory Inventory { get; } = new();
@@ -72,6 +73,7 @@ public sealed class CatalogCacheFixture : IAsyncLifetime
     {
         Client?.Dispose();
         Second?.Dispose();
+        Third?.Dispose();
         foreach (var app in _apps) await app.DisposeAsync();
         _apps.Clear();
         await Redis.ExecuteAsync("FLUSHDB");
@@ -82,6 +84,7 @@ public sealed class CatalogCacheFixture : IAsyncLifetime
         Saves.Reset();
         App = Build(Queries, settings);
         var second = Build(SecondQueries, settings);
+        var third = Build(new QueryProbe(), settings);
         await using (var scope = App.Services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<ProductsDbContext>();
@@ -97,8 +100,10 @@ public sealed class CatalogCacheFixture : IAsyncLifetime
         }
         await App.StartAsync();
         await second.StartAsync();
+        await third.StartAsync();
         Client = App.GetTestClient();
         Second = second.GetTestClient();
+        Third = third.GetTestClient();
         Queries.Reset();
         SecondQueries.Reset();
     }
@@ -201,7 +206,7 @@ public sealed class CatalogCacheFixture : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        Client?.Dispose(); Second?.Dispose();
+        Client?.Dispose(); Second?.Dispose(); Third?.Dispose();
         foreach (var app in _apps) await app.DisposeAsync();
         if (_connection is not null) await _connection.DisposeAsync();
         await _redis.DisposeAsync();
