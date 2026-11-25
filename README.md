@@ -1318,6 +1318,42 @@ shared 429 to its independent 401. The
 [Nginx](tests/proof/requirement-5/results/nginx-checks-r5-05-20261123.txt) regressions passed; the optional
 browser-only Nginx step was skipped because Chrome/Chromium was unavailable to the script.
 
+## Remaining scalability tasks (R5-08, R5-09, R5-11, R5-12)
+
+The [branch/PR audit](docs/requirement-5/implementation-status.md) distinguishes implemented work from missing
+work. R5-06 already has PR #60; R5-07 already has PR #59 on a different base branch. These changes are not copied here.
+
+Product details now set `HybridCacheEntryFlags.DisableLocalCache`: every instance uses the shared Redis snapshot,
+so an admin edit invalidates the body/ETag even on an already warm peer. Lists/categories retain their existing
+bounded five-second L1; R5-08 specifically changes product details. Live stock is still fetched separately, and
+order prices still read the database. A nine-read regression warms three hosts before editing and immediately
+checks the updated body and ETag on all three, without waiting for L1 expiry.
+
+Compose's database budget counts read-pool failover as well as writes:
+
+| Consumer | Pool limit | Worst-case primary | Replica |
+| --- | ---: | ---: | ---: |
+| Three API write pools | 15 each | 45 | 0 |
+| Three API read pools, including fallback | 10 each | 30 | 30 |
+| Three workers | 5 each | 15 | 0 |
+| Total runtime budget | | 90 | 30 |
+
+Both Postgres servers explicitly allow 100 connections, leaving at least ten on the primary for tools/reserves.
+The migrator uses a separate five-connection pool before runtime hosts start. `.env.example` exposes these
+limits; rerun `tests/proof/requirement-5/connection-budget.sh` after changing pool sizes or replica counts.
+That command requires the `replica` profile running and checks actual `SHOW max_connections` on both servers.
+Npgsql's `prefer-standby` can return primary connections when the standby is unavailable/full, so budgeting only
+the write pool would be unsafe. The full connection strings are not printed in the proof output.
+
+The three email workers now use prefetch one. Real RabbitMQ tests verify the broker's prefetch, fair sharing of
+30 messages, recovery when a worker disappears before its send, and deduplication when recorded IDs are replayed.
+The existing at-least-once SMTP limitation in ADR 0001 still applies to a crash after SMTP acceptance but before recording.
+
+The [Requirement 5 proof kit](tests/proof/requirement-5/README.md) adds tagged before/after checks, exactly 500 k6
+requests counted by X-Instance, a stop/rejoin during traffic, connection samples, and a same-rate one/three API
+comparison. Its workflow publishes results on GitHub. The six-product proof is separate from the large
+Requirement 3 benchmark. [ADR 0002](docs/adr/0002-least-connections-and-shared-state.md) records the least_conn decision.
+
 ## Verify
 
 ```sh

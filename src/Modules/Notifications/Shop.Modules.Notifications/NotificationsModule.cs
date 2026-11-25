@@ -58,7 +58,8 @@ public static class NotificationsModule
             .Validate(EmailOptions.HasValidRetries, "Email:SendAttempts must be 1 to 5, and Email:RetryDelay 0 to 10 seconds.")
             .ValidateOnStart();
         services.TryAddSingleton<IEmailSender, SmtpEmailSender>();
-        services.AddQueueConsumer<OrderConfirmationHandler>(ShopTopology.EmailQueue, prefetch: 5);
+        // One unacknowledged email per worker, so a slow send cannot reserve the other workers' backlog (R5-11).
+        services.AddQueueConsumer<OrderConfirmationHandler>(ShopTopology.EmailQueue, prefetch: 1);
         return services;
     }
 
