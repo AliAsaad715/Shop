@@ -122,6 +122,7 @@ public sealed class CatalogCacheFixture : IAsyncLifetime
             ["CatalogCache:ProductTtl"] = "00:10:00", ["CatalogCache:CategoriesTtl"] = "01:00:00",
             ["CatalogCache:ListTtl"] = "00:01:00", ["CatalogCache:LocalTtl"] = "00:00:05",
             ["CatalogCache:MaxCachedPage"] = "3", ["DemoSeed:Enabled"] = "false",
+            ["Images:Provider"] = "Local",
             ["Images:RootPath"] = _images.FullName, ["Inventory:Address"] = "http://localhost:50051",
         });
         if (overrides is not null) builder.Configuration.AddInMemoryCollection(overrides);

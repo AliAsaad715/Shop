@@ -17,7 +17,7 @@ internal sealed class LocalImageStorage(
         }
 
         ct.ThrowIfCancellationRequested();
-        var path = $"products/{Guid.CreateVersion7():N}{extension}";
+        var path = ImageKey.Create(extension);
         var fullPath = Resolve(path)!;
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
         var created = false;
@@ -90,16 +90,6 @@ internal sealed class LocalImageStorage(
 
     private string? Resolve(string path)
     {
-        if (!path.StartsWith("products/", StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        var fileName = path["products/".Length..];
-        var extension = Path.GetExtension(fileName);
-        return ImageSignatures.ContentType(extension) is not null && Guid.TryParseExact(Path.GetFileNameWithoutExtension(fileName), "N", out _)
-            && fileName == Path.GetFileName(fileName)
-            ? Path.Combine(_root, "products", fileName)
-            : null;
+        return ImageKey.IsValid(path) ? Path.Combine(_root, "products", path["products/".Length..]) : null;
     }
 }

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Shop.Modules.Products.Catalog;
 using Shop.Modules.Products.Contracts;
 using Shop.Modules.Products.Creation;
@@ -37,9 +38,7 @@ public static class ProductsModule
                 "ConnectionStrings:Redis is required when CatalogCache is enabled.")
             .ValidateOnStart();
         services.AddScoped<IProductCatalog, ProductCatalog>();
-        services.AddScoped<IImageStorage, LocalImageStorage>();
-        services.AddOptions<ImageStorageOptions>().BindConfiguration("Images")
-            .Validate(options => !string.IsNullOrWhiteSpace(options.RootPath), "Images:RootPath is required.");
+        services.AddProductImageStorage();
 
         // The demo catalog that matches the warehouse seed; off unless DemoSeed:Enabled is true
         services.AddOptions<DemoSeedOptions>().BindConfiguration(DemoSeedOptions.Section);
@@ -62,6 +61,24 @@ public static class ProductsModule
 
     public static IApplicationBuilder UseProductUploads(this IApplicationBuilder app) =>
         app.UseMiddleware<ProductUploadLimitMiddleware>();
+
+    // Explicit command modes use these without starting the application's host or background services.
+    public static async Task EnsureProductImageStorageReadyAsync(this IServiceProvider services, CancellationToken ct = default)
+    {
+        await using var scope = services.CreateAsyncScope();
+        if (scope.ServiceProvider.GetRequiredService<IOptions<ImageStorageOptions>>().Value.IsS3)
+            await scope.ServiceProvider.GetRequiredService<S3ImageStorage>().EnsureAvailableAsync(ct);
+    }
+
+    public static async Task<bool> ImportProductImagesAsync(this IServiceProvider services, CancellationToken ct = default)
+    {
+        await using var scope = services.CreateAsyncScope();
+        // Resolve options before constructing an S3 client, so invalid configuration has the same clear validation error.
+        if (!scope.ServiceProvider.GetRequiredService<IOptions<ImageStorageOptions>>().Value.IsS3)
+            throw new InvalidOperationException("Image import requires Images:Provider=S3.");
+        var result = await scope.ServiceProvider.GetRequiredService<ImageImporter>().ImportAsync(ct);
+        return result.Failed == 0;
+    }
 
     public static IEndpointRouteBuilder MapProductImages(this IEndpointRouteBuilder endpoints)
     {

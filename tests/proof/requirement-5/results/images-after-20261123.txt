@@ -1,0 +1,73 @@
+1.30.7-alpine: Pulling from library/nginx
+Digest: sha256:caf4e1e032a20f9c3c5e28fc7f25ffd768ad8677b4975c54193075997b3a97e3
+Status: Image is up to date for nginx:1.30.7-alpine
+docker.io/library/nginx:1.30.7-alpine
+
+== R5-07 after; source 7a7e397 (working tree compiled below)
+   isolated resources: shop-r5-images; work folder: /tmp/shop-r5-images.0pvq5i
+
+== Initialize the legacy database and demo images with Local storage
+
+== Import legacy files twice, retaining keys and validating content
+wget: can't connect to remote host (127.0.0.1): Connection refused
+wget: can't connect to remote host (127.0.0.1): Connection refused
+wget: can't connect to remote host (127.0.0.1): Connection refused
+wget: can't connect to remote host (127.0.0.1): Connection refused
+wget: can't connect to remote host (127.0.0.1): Connection refused
+wget: server returned error: HTTP/1.1 404 Not Found
+         Image import completed: 6 copied, 0 matched, 0 failed, 6 referenced images checked
+         Image import completed: 0 copied, 6 matched, 0 failed, 6 referenced images checked
+
+== Upload once through Nginx; read three times from each instance through Nginx
+   upload answered by api2; public path /images/products/01a20a08b45e70d9b103ab326c71ab19.png
+   api1 read 1: 200
+   api3 read 1: 200
+   api2 read 1: 200
+   api1 read 2: 200
+   api3 read 2: 200
+   api2 read 2: 200
+   api1 read 3: 200
+   api3 read 3: 200
+   api2 read 3: 200
+   9 of 9 found; SHA-256 9e38aefdd362392d446d0325691da9a059614e2c4d848a4a3deaab85847f7375
+
+== Legacy demo URLs work on S3 and API containers have no image-volume mounts
+   old demo URL: 200; all three API containers: zero mounts
+
+== Recreate the uploader and SeaweedFS, retaining only the storage volume
+wget: can't connect to remote host (127.0.0.1): Connection refused
+wget: can't connect to remote host (127.0.0.1): Connection refused
+wget: can't connect to remote host (127.0.0.1): Connection refused
+wget: can't connect to remote host (127.0.0.1): Connection refused
+wget: can't connect to remote host (127.0.0.1): Connection refused
+wget: can't connect to remote host (127.0.0.1): Connection refused
+   api3 read 1: 200
+   api2 read 1: 200
+   api1 read 1: 200
+   api3 read 2: 200
+   api2 read 2: 200
+   api1 read 2: 200
+   api3 read 3: 200
+   api2 read 3: 200
+   api1 read 3: 200
+   9 of 9 found; SHA-256 9e38aefdd362392d446d0325691da9a059614e2c4d848a4a3deaab85847f7375
+
+== Storage failure is 503 and cannot create a product; restart recovers
+   upload and image read: 503; database product count unchanged
+wget: can't connect to remote host (127.0.0.1): Connection refused
+wget: can't connect to remote host (127.0.0.1): Connection refused
+wget: can't connect to remote host (127.0.0.1): Connection refused
+wget: can't connect to remote host (127.0.0.1): Connection refused
+wget: can't connect to remote host (127.0.0.1): Connection refused
+   api1 read 1: 200
+   api3 read 1: 200
+   api2 read 1: 200
+   api1 read 2: 200
+   api3 read 2: 200
+   api2 read 2: 200
+   api1 read 3: 200
+   api3 read 3: 200
+   api2 read 3: 200
+   9 of 9 found; SHA-256 9e38aefdd362392d446d0325691da9a059614e2c4d848a4a3deaab85847f7375
+
+== R5-07 after checks passed
