@@ -104,7 +104,13 @@ public sealed class RedisLoginRateLimitTests(ForwardedHeadersFixture fixture) : 
         using var document = await JsonDocument.ParseAsync(context.Response.Body);
         var problem = document.RootElement;
         Assert.Equal(status, problem.GetProperty("status").GetInt32());
-        var code = status == 401 ? ErrorCodes.Users.InvalidCredentials : ErrorCodes.ForStatus(status);
+        var code = status switch
+        {
+            401 => ErrorCodes.Users.InvalidCredentials,
+            429 => ErrorCodes.Common.TooManyRequests,
+            503 => ErrorCodes.Common.ServiceUnavailable,
+            _ => throw new ArgumentOutOfRangeException(nameof(status)),
+        };
         Assert.Equal(code, problem.GetProperty("code").GetString());
         Assert.False(string.IsNullOrWhiteSpace(problem.GetProperty("traceId").GetString()));
         Assert.Equal("no-store", context.Response.Headers.CacheControl);
